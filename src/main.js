@@ -335,7 +335,7 @@ function updateSliderRange() {
 
 // ângulo
 function setTheta(v, final) {
-  stopAnim(false);
+  cancelAnim();
   state.theta = Math.min(360, Math.max(1, Math.round(+v || 1)));
   if (final) commit(); else frame();
 }
@@ -348,17 +348,18 @@ els.angChips.addEventListener('click', (e) => {
   if (b) setTheta(b.dataset.ang, true);
 });
 
-// animação da rotação: θ cresce de 0 até ao valor escolhido
+// animação da rotação: θ cresce de 0 até ao valor escolhido (pode ser pausada e retomada)
 let anim = null;
+const targetTheta = () => (anim ? anim.target : Math.round(state.theta));
 function startAnim() {
   if (!genFunc()) return;
-  const target = Math.round(state.theta) || 360;
-  anim = { target, last: null, elapsed: 0, dur: 900 + 2400 * (target / 360) };
+  const target = targetTheta() || 360;
+  anim = { target, last: null, elapsed: 0, dur: 900 + 2400 * (target / 360), paused: false };
   setPlayIcons(true);
   requestAnimationFrame(stepAnim);
 }
 function stepAnim(now) {
-  if (!anim) return;
+  if (!anim || anim.paused) return;
   // o tempo avança no máximo 100 ms por frame: um frame lento não faz saltar a animação
   if (anim.last !== null) anim.elapsed += Math.min(100, Math.max(0, now - anim.last));
   anim.last = now;
@@ -369,22 +370,35 @@ function stepAnim(now) {
   doFrame();
   if (anim) requestAnimationFrame(stepAnim);
 }
-function stopAnim(freeze = true) {
+// cancela a animação (o utilizador escolheu outro ângulo)
+function cancelAnim() {
   if (!anim) return;
-  if (freeze) state.theta = Math.max(1, Math.round(state.theta)); else state.theta = anim.target;
   anim = null;
   setPlayIcons(false);
 }
+// termina a animação já no ângulo escolhido (desfazer, nova ligação)
+function stopAnim() {
+  if (!anim) return;
+  state.theta = anim.target;
+  cancelAnim();
+}
 function toggleAnim() {
-  if (anim) { stopAnim(true); commit(); }
-  else startAnim();
+  if (!anim) { startAnim(); return; }
+  if (anim.paused) {
+    anim.paused = false; anim.last = null;
+    setPlayIcons(true);
+    requestAnimationFrame(stepAnim);
+  } else {
+    anim.paused = true;
+    setPlayIcons(false);
+  }
 }
 function setPlayIcons(playing) {
   for (const b of [els.btnPlay, els.anim3d]) {
     b.querySelector('use').setAttribute('href', playing ? '#i-pause' : '#i-play');
     b.setAttribute('aria-label', playing ? 'Pausar a animação' : 'Animar a rotação');
   }
-  els.anim3d.querySelector('span').textContent = playing ? 'Pausar' : 'Animar rotação';
+  els.anim3d.querySelector('span').textContent = playing ? 'Pausar' : anim && anim.paused ? 'Continuar' : 'Animar rotação';
 }
 els.btnPlay.addEventListener('click', toggleAnim);
 els.anim3d.addEventListener('click', toggleAnim);
@@ -554,7 +568,7 @@ function pushHistory() {
 function undo() { if (hIdx > 0) { hIdx--; restore(hist[hIdx]); } }
 function redo() { if (hIdx < hist.length - 1) { hIdx++; restore(hist[hIdx]); } }
 function restore(s) {
-  stopAnim(false);
+  stopAnim();
   applyState(s, { keepView: true });
   renderAlgebra();
   doFrame();
@@ -577,7 +591,7 @@ function serialize(withView = true) {
     p.set('eixo', state.axis);
     p.set('a', state.aSrc);
     p.set('b', state.bSrc);
-    p.set('ang', String(Math.round(state.theta)));
+    p.set('ang', String(targetTheta()));
   }
   if (withView && state.view !== '2d') p.set('vista', state.view);
   return p.toString();
@@ -632,7 +646,7 @@ function writeUrl() {
 window.addEventListener('hashchange', () => {
   const h = location.hash.slice(1);
   if (h === lastHash) return;
-  stopAnim(false);
+  stopAnim();
   applyState(h);
   pushHistory();
   renderAlgebra();
