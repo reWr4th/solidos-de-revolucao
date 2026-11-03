@@ -95,7 +95,11 @@
       </div>
 
       <section class="sec" id="solidSec" hidden>
-        <h2 class="sec-h"><span class="num">2</span>Sólido de revolução</h2>
+        <h2 class="sec-h"><span class="num">2</span><span id="solidTitle">Sólido de revolução</span></h2>
+        <label class="mode-toggle" for="chkSurf">
+          <input type="checkbox" id="chkSurf">
+          <span class="mt-text"><b>Superfície de revolução</b><small>Só a casca gerada pela curva: sem bases nem interior</small></span>
+        </label>
         <div class="field" id="genField" hidden>
           <label for="genSel">Função geradora</label>
           <select id="genSel" class="inp"></select>
@@ -136,7 +140,17 @@
             <button data-ang="90">90°</button><button data-ang="180">180°</button><button data-ang="240">240°</button><button data-ang="270">270°</button><button data-ang="360">360°</button>
           </div>
         </div>
-        <button class="btn-primary block" id="btnGen"><svg class="ic"><use href="#i-cube"/></svg>Gerar sólido 3D</button>
+        <div class="field">
+          <div class="dur-row">
+            <label for="inDur">Duração da rotação</label>
+            <div class="deg-wrap"><input id="inDur" class="inp mono deg" type="number" min="0.5" max="120" step="0.5" inputmode="decimal"><span>s</span></div>
+          </div>
+          <div class="chips small" id="durChips">
+            <button data-dur="1">1 s</button><button data-dur="3">3 s</button><button data-dur="10">10 s</button><button data-dur="30">30 s</button><button data-dur="60">60 s</button>
+          </div>
+          <div class="hint">Tempo que a animação ▶ demora a rodar de 0° até θ, a velocidade constante. Podes mudá-lo durante a animação.</div>
+        </div>
+        <button class="btn-primary block" id="btnGen"><svg class="ic"><use href="#i-cube"/></svg><span id="btnGenTxt">Gerar sólido 3D</span></button>
       </section>
 
       <section class="sec" id="resSec" hidden>
@@ -144,7 +158,7 @@
         <div class="res">
           <div class="res-row"><span>Intervalo [a, b]</span><b id="rInt" class="mono"></b></div>
           <div class="res-row"><span>Ângulo θ</span><b id="rAng" class="mono"></b></div>
-          <div class="res-row big"><span>Volume</span><b id="rVol" class="mono"></b></div>
+          <div class="res-row big" id="rVolRow"><span>Volume</span><b id="rVol" class="mono"></b></div>
           <div class="res-row"><span id="rAreaK">Área lateral</span><b id="rArea" class="mono"></b></div>
         </div>
         <div class="formula" id="rFormula"></div>
@@ -156,7 +170,7 @@
           <summary>Aspeto do sólido 3D</summary>
           <div class="toggles">
             <label class="tg"><input type="checkbox" data-look="solid"><span>Sólido</span></label>
-            <label class="tg"><input type="checkbox" data-look="caps"><span>Secções de corte</span></label>
+            <label class="tg" id="tgCaps"><input type="checkbox" data-look="caps"><span>Secções de corte</span></label>
             <label class="tg"><input type="checkbox" data-look="mesh"><span>Malha</span></label>
             <label class="tg"><input type="checkbox" data-look="curve"><span>Curva geradora</span></label>
             <label class="tg"><input type="checkbox" data-look="axes"><span>Eixos</span></label>
@@ -226,7 +240,7 @@
       <div class="notice" id="ozNotice" hidden>
         <b>Eixo Oz ⟂ plano xOy.</b> A região roda dentro do próprio plano da curva e varre uma <b>região plana</b> — não há sólido (volume 0). Para um sólido "em pé", usa o eixo Oy.
       </div>
-      <div class="empty3d" id="empty3d">Escreve uma função na Entrada para gerar o sólido.</div>
+      <div class="empty3d" id="empty3d">Escreve uma função na Entrada para gerar o sólido (ou a superfície) de revolução.</div>
       <button class="anim-btn" id="btnAnim3d"><svg class="ic"><use href="#i-play"/></svg><span>Animar rotação</span></button>
       <div class="fab-col">
         <button class="fab" data-z3="home" aria-label="Enquadrar o sólido" title="Enquadrar o sólido"><svg class="ic"><use href="#i-home"/></svg></button>
@@ -249,7 +263,8 @@
       <li><b>Função geradora.</b> Escreve <code>y = f(x)</code> na Entrada (por ex. <code>x^2 - x + 2</code> ou <code>f(x) = sqrt(x)</code>) e carrega Enter. Clica numa função da lista para a editar; o círculo colorido mostra/esconde.</li>
       <li><b>Eixo de rotação.</b> Ox (método dos discos), Oy (método das cascas cilíndricas) ou Oz. A curva está no plano xOy, por isso Oz é perpendicular a esse plano: a região roda dentro do próprio plano e o resultado é uma região plana (volume 0).</li>
       <li><b>Limites a e b.</b> Escreve-os (aceita <code>pi</code>, <code>2pi/3</code>, <code>sqrt(2)</code>), usa os cursores ou arrasta os pontos a e b no gráfico 2D.</li>
-      <li><b>Ângulo θ.</b> De 1° a 360° (por ex. 240° para ver o interior). O botão ▶ anima a rotação.</li>
+      <li><b>Ângulo θ.</b> De 1° a 360° (por ex. 240° para ver o interior). O botão ▶ anima a rotação; em "Duração da rotação" escolhes quanto tempo demora (de 0,5 s a 120 s), por exemplo 1 s para uma rotação quase instantânea ou 30 s para veres o sólido a formar-se devagar.</li>
+      <li><b>Sólido ou superfície.</b> Com "Superfície de revolução" ativo, só a curva roda: obténs a casca (sem bases nem interior). Por fora tem a cor escolhida e por dentro um tom mais claro; mostra-se a área da superfície.</li>
     </ol>
     <h3>O que é calculado</h3>
     <p>A região R é limitada pelo gráfico de f, pelo eixo Ox e pelas retas x = a e x = b (a zona sombreada no gráfico). Rodando R um ângulo θ (em radianos):</p>
@@ -257,6 +272,7 @@
       <li>em torno de Ox: <span class="mf">V = (θ/2) ∫ f(x)² dx</span> e área lateral <span class="mf">A = θ ∫ |f(x)| √(1 + f′(x)²) dx</span>;</li>
       <li>em torno de Oy: <span class="mf">V = θ ∫ |x|·|f(x)| dx</span> e <span class="mf">A = θ ∫ |x| √(1 + f′(x)²) dx</span>. Se [a, b] contém o 0, as duas metades sobrepõem-se e calcula-se o volume da união;</li>
       <li>com θ = 360° obtêm-se as fórmulas habituais (π ∫ f² dx e 2π ∫ x f dx).</li>
+      <li>no modo superfície roda só o gráfico de f entre a e b; a área da superfície é a área lateral acima.</li>
     </ul>
     <p>Os integrais são calculados numericamente com alta precisão. Quando o resultado é um múltiplo racional de π, mostra-se também essa forma (por ex. ≈ 176π/15).</p>
     <h3>Sintaxe</h3>

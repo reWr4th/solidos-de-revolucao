@@ -307,6 +307,18 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 24px; ma
 .play-btn:hover { background: var(--accent-hover); }
 .play-btn .ic { width: 18px; height: 18px; }
 #angChips { margin-top: 8px; }
+.dur-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.dur-row label { margin: 0; }
+#durChips + .hint { margin-top: 8px; }
+.mode-toggle {
+  display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
+  padding: 10px 12px; margin: -2px 0 14px; border: 1px solid var(--border-2); border-radius: 10px;
+}
+.mode-toggle:hover { border-color: var(--accent); }
+.mode-toggle input { accent-color: var(--accent); width: 18px; height: 18px; margin: 1px 0 0; flex: none; }
+.mode-toggle .mt-text { display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.mode-toggle small { color: var(--text-3); font-size: 12px; line-height: 1.35; }
+.mode-toggle:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
 #btnGen { margin-top: 18px; }
 
 /* ----------------------------------------------------------- resultados */

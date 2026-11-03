@@ -70,7 +70,9 @@ export function sampleProfile(f, a, b, n, { splitX0 = false } = {}) {
 }
 
 // Superfície varrida por uma polilinha (xs, ys) do plano xOy.
-export function sweep(xs, ys, rot, theta, nT, wrap) {
+// flip(i) inverte a orientação dos triângulos da faixa i (para a casca ter as duas
+// faces coerentes: em Oy, a parte com x < 0 tem de ficar com a mesma face "de cima").
+export function sweep(xs, ys, rot, theta, nT, wrap, flip = null) {
   const m = xs.length;
   const cols = wrap ? nT : nT + 1;
   const pos = new Float32Array(m * cols * 3);
@@ -83,11 +85,17 @@ export function sweep(xs, ys, rot, theta, nT, wrap) {
   const idx = new Uint32Array(nq * 6);
   let k = 0;
   for (let i = 0; i < m - 1; i++) {
+    const fl = flip ? flip(i) : false;
     for (let j = 0; j < nT; j++) {
       const j1 = wrap ? (j + 1) % cols : j + 1;
       const p00 = i * cols + j, p01 = i * cols + j1, p10 = (i + 1) * cols + j, p11 = (i + 1) * cols + j1;
-      idx[k++] = p00; idx[k++] = p10; idx[k++] = p11;
-      idx[k++] = p00; idx[k++] = p11; idx[k++] = p01;
+      if (fl) {
+        idx[k++] = p00; idx[k++] = p11; idx[k++] = p10;
+        idx[k++] = p00; idx[k++] = p01; idx[k++] = p11;
+      } else {
+        idx[k++] = p00; idx[k++] = p10; idx[k++] = p11;
+        idx[k++] = p00; idx[k++] = p11; idx[k++] = p01;
+      }
     }
   }
   return { pos, idx };
@@ -162,7 +170,8 @@ function meshLines(f, prof, rot, a, b, theta, full, YMAX) {
 }
 
 // Constrói tudo o que a vista 3D precisa. res: 1 (baixa), 2 (média), 3 (alta)
-export function buildSolid({ f, a, b, axis, theta, res = 2 }) {
+// surface = true: superfície de revolução (só a casca gerada pela curva).
+export function buildSolid({ f, a, b, axis, theta, res = 2, surface = false }) {
   const full = theta >= TAU - 1e-9;
   const nx = [0, 80, 160, 320][res] || 160;
   const nTfull = [0, 48, 96, 160][res] || 96;
@@ -174,17 +183,30 @@ export function buildSolid({ f, a, b, axis, theta, res = 2 }) {
   const ya = ys[0], yb = ys[ys.length - 1];
   const sw = (X, Y) => sweep(X, Y, rot, theta, nT, full);
 
-  const lateral = sw(xs, ys);
+  const flip = axis === 'y' ? (i) => xs[i] + xs[i + 1] < 0 : null;
+  const lateral = sweep(xs, ys, rot, theta, nT, full, flip);
   const endParts = [];
-  if (ya) endParts.push(sw([a, a], [0, ya]));
-  if (yb) endParts.push(sw([b, b], [0, yb]));
-  if (axis !== 'x') {
-    if (straddle) { endParts.push(sw([a, 0], [0, 0])); endParts.push(sw([0, b], [0, 0])); }
-    else endParts.push(sw([a, b], [0, 0]));
+  if (!surface) {
+    if (ya) endParts.push(sw([a, a], [0, ya]));
+    if (yb) endParts.push(sw([b, b], [0, yb]));
+    if (axis !== 'x') {
+      if (straddle) { endParts.push(sw([a, 0], [0, 0])); endParts.push(sw([0, b], [0, 0])); }
+      else endParts.push(sw([a, b], [0, 0]));
+    }
   }
   const ends = merge(endParts);
   let caps = null;
-  if (!full || axis === 'z') caps = merge([regionFace(xs, ys, rot, 0), full ? null : regionFace(xs, ys, rot, theta)]);
+  if (!surface && (!full || axis === 'z')) caps = merge([regionFace(xs, ys, rot, 0), full ? null : regionFace(xs, ys, rot, theta)]);
+  // bordas da casca: circunferências (ou arcos) descritas pelos extremos da curva
+  const rims = [];
+  if (surface) {
+    const nR = Math.max(8, Math.round((128 * theta) / TAU));
+    for (const [x0, y0] of [[a, ya], [b, yb]]) {
+      const arr = new Float32Array((nR + 1) * 3);
+      for (let j = 0; j <= nR; j++) { const ph = (theta * j) / nR; rot(x0, y0, Math.cos(ph), Math.sin(ph), arr, j * 3); }
+      rims.push(arr);
+    }
+  }
 
   const mesh = meshLines(f, prof, rot, a, b, theta, full, prof.YMAX);
   const curve0 = polyline3D(xs, ys, rot, 0);
@@ -214,8 +236,8 @@ export function buildSolid({ f, a, b, axis, theta, res = 2 }) {
     min = [-r, -r, 0]; max = [r, r, 0];
   }
   return {
-    full, nT, prof, lateral, ends, caps, mesh, curve0, curveT,
-    outline0: outline(0), outlineT: full ? null : outline(theta),
+    full, nT, prof, lateral, ends, caps, mesh, curve0, curveT, rims, surface,
+    outline0: surface ? [] : outline(0), outlineT: full || surface ? null : outline(theta),
     bounds: { min, max },
   };
 }

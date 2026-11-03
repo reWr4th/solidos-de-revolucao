@@ -208,8 +208,49 @@ function ozPrepare(F, a, b, key) {
   return ozCache;
 }
 
-function ozSweptArea(F, a, b, theta, key) {
-  const c = ozPrepare(F, a, b, key);
+// Modo superfície: só a curva roda; marca as células (anel, ângulo) atravessadas pela curva.
+function ozPrepareCurve(f, a, b, key) {
+  if (ozCache.key === key) return ozCache;
+  const n = 6000;
+  const pts = [];
+  let rhoMin = Infinity, rhoMax = 0;
+  for (let i = 0; i <= n; i++) {
+    const x = a + ((b - a) * i) / n, y = f(x);
+    if (!Number.isFinite(y)) { pts.push(null); continue; }
+    const r = Math.hypot(x, y);
+    rhoMin = Math.min(rhoMin, r); rhoMax = Math.max(rhoMax, r);
+    pts.push([x, y]);
+  }
+  if (!(rhoMax > 0)) { ozCache = { key, occ: new Uint8Array(OZ_NR * OZ_NA), rhoMin: 0, rhoMax: 0, dr: 0 }; return ozCache; }
+  if (rhoMax - rhoMin < 1e-12) rhoMax = rhoMin + 1e-9;
+  const dr = (rhoMax - rhoMin) / OZ_NR;
+  const occ = new Uint8Array(OZ_NR * OZ_NA);
+  const mark = (x, y) => {
+    const r = Math.hypot(x, y);
+    const k = Math.min(OZ_NR - 1, Math.max(0, Math.floor((r - rhoMin) / dr)));
+    let t = Math.atan2(y, x); if (t < 0) t += TAU;
+    const j = Math.min(OZ_NA - 1, Math.floor((t / TAU) * OZ_NA));
+    occ[k * OZ_NA + j] = 1;
+  };
+  for (let i = 0; i < pts.length; i++) {
+    const P = pts[i];
+    if (!P) continue;
+    mark(P[0], P[1]);
+    const Q = pts[i + 1];
+    if (!Q) continue;
+    // subdivide para não saltar anéis nem células angulares
+    const steps = Math.min(400, Math.ceil(Math.max(
+      Math.abs(Math.hypot(Q[0], Q[1]) - Math.hypot(P[0], P[1])) / (dr / 2),
+      Math.hypot(Q[0] - P[0], Q[1] - P[1]) / Math.max(1e-12, (Math.hypot(P[0], P[1]) * TAU) / OZ_NA / 2),
+      1)));
+    for (let s = 1; s < steps; s++) mark(P[0] + ((Q[0] - P[0]) * s) / steps, P[1] + ((Q[1] - P[1]) * s) / steps);
+  }
+  ozCache = { key, occ, rhoMin, rhoMax, dr };
+  return ozCache;
+}
+
+function ozSweptArea(F, a, b, theta, key, prepared = null) {
+  const c = prepared || ozPrepare(F, a, b, key);
   const full = theta >= TAU - 1e-9;
   if (full) return { area: Math.PI * (c.rhoMax ** 2 - c.rhoMin ** 2), exact: true, rhoMin: c.rhoMin, rhoMax: c.rhoMax };
   const T = Math.round((theta / TAU) * OZ_NA);
@@ -231,9 +272,9 @@ function ozSweptArea(F, a, b, theta, key) {
 //  Região R = { a ≤ x ≤ b, y entre 0 e f(x) } (entre o gráfico e o eixo Ox)
 //  roda um ângulo θ em torno do eixo escolhido.
 
-export function computeMetrics({ f, df, a, b, axis, theta, key = '' }) {
+export function computeMetrics({ f, df, a, b, axis, theta, key = '', surface = false }) {
   const out = {
-    axis, theta, a, b,
+    axis, theta, a, b, surface,
     volume: NaN, area: NaN, areaKind: 'lateral',
     method: '', straddle: false, flat: false, exact: true,
     warnings: [], fracV: null, fracA: null,
@@ -298,7 +339,9 @@ export function computeMetrics({ f, df, a, b, axis, theta, key = '' }) {
     out.flat = true;
     out.volume = 0;
     out.areaKind = 'varrida';
-    const sw = ozSweptArea(F, a, b, theta, key + '|' + a + '|' + b);
+    const sw = surface
+      ? ozSweptArea(F, a, b, theta, null, ozPrepareCurve(f, a, b, key + '|curva|' + a + '|' + b))
+      : ozSweptArea(F, a, b, theta, key + '|' + a + '|' + b);
     out.area = sw.area;
     out.exact = sw.exact;
     out.rhoMin = sw.rhoMin;

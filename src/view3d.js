@@ -165,6 +165,10 @@ export class View3D {
       ends: new THREE.MeshPhongMaterial({ ...surf, shininess: 30, specular: 0x202020 }),
       caps: new THREE.MeshPhongMaterial({ ...surf, shininess: 14, specular: 0x111111 }),
       flat: new THREE.MeshPhongMaterial({ ...surf, flatShading: true, shininess: 10, specular: 0x111111, polygonOffsetFactor: 2, polygonOffsetUnits: 2 }),
+      // superfície de revolução: face exterior e face interior da casca com cores diferentes
+      shellOut: new THREE.MeshPhongMaterial({ side: THREE.FrontSide, shininess: 60, specular: 0x333333, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+      shellIn: new THREE.MeshPhongMaterial({ side: THREE.BackSide, shininess: 25, specular: 0x1a1a1a, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }),
+      rim: new THREE.LineBasicMaterial(),
       mesh: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.5 }),
       curve0: new THREE.MeshPhongMaterial({ shininess: 60 }),
       curveT: new THREE.MeshPhongMaterial({ color: 0xf59e0b, shininess: 60 }),
@@ -254,7 +258,10 @@ export class View3D {
     this.mats.ends.color.copy(mix(L.color, '#000000', 0.14));
     this.mats.caps.color.copy(mix(L.color, '#ffffff', 0.42));
     this.mats.flat.color.set(L.color);
-    for (const k of ['lateral', 'ends', 'caps']) {
+    this.mats.shellOut.color.set(L.color);
+    this.mats.shellIn.color.copy(mix(L.color, '#ffffff', 0.55));
+    this.mats.rim.color.copy(t.dark ? mix(L.color, '#ffffff', 0.35) : mix(L.color, '#000000', 0.35));
+    for (const k of ['lateral', 'ends', 'caps', 'shellOut', 'shellIn']) {
       const m = this.mats[k];
       m.transparent = transparent;
       m.opacity = op;
@@ -301,7 +308,18 @@ export class View3D {
     const r = this.tubeR;
     const add = (g, o, tag) => { if (o) { o.userData.tag = tag; g.add(o); } };
 
-    add(this.gSolid, new THREE.Mesh(geom(sol.lateral, !flat), flat ? this.mats.flat : this.mats.lateral), 'solid');
+    if (d.surface && !flat) {
+      const g = geom(sol.lateral, true);
+      add(this.gSolid, new THREE.Mesh(g, this.mats.shellOut), 'solid');
+      add(this.gSolid, new THREE.Mesh(g, this.mats.shellIn), 'solid');
+    } else {
+      add(this.gSolid, new THREE.Mesh(geom(sol.lateral, !flat), flat ? this.mats.flat : this.mats.lateral), 'solid');
+    }
+    for (const rim of sol.rims || []) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(rim, 3));
+      add(this.gSolid, new THREE.Line(g, this.mats.rim), 'solid');
+    }
     if (sol.ends.idx.length) add(this.gSolid, new THREE.Mesh(geom(sol.ends, !flat), flat ? this.mats.flat : this.mats.ends), 'solid');
     if (sol.caps && sol.caps.idx.length) add(this.gSolid, new THREE.Mesh(geom(sol.caps, !flat), flat ? this.mats.flat : this.mats.caps), flat ? 'solid' : 'caps');
 

@@ -251,11 +251,12 @@ export class Graph2D {
 
     this.drawGrid(m);
     if (gen && m.axis === 'z') this.drawOzSweep(m, gen);
-    if (gen) this.drawRegion(m, gen);
+    if (gen && !m.surface) this.drawRegion(m, gen);
     if (m.axesOn !== false) this.drawAxes(m);
     for (const f of m.funcs) if (f.visible && f !== gen) this.drawCurve(f, false);
     if (gen) {
       this.drawCurve(gen, true);
+      if (m.surface) this.drawGenArc(m, gen);
       this.drawLimits(m, gen);
     }
     if (gen) this.drawAxisGlyph(m, gen);
@@ -436,6 +437,35 @@ export class Graph2D {
     ctx.fill();
   }
 
+  // Modo superfície: a "região" geradora é só o arco da curva entre a e b
+  drawGenArc(m, g) {
+    const ctx = this.ctx;
+    const col = this.fc(g.color);
+    const xa = Math.max(m.a, this.wx(-4)), xb = Math.min(m.b, this.wx(this.W + 4));
+    if (xb > xa) {
+      const paths = this.curvePath(g.fn, xa, xb, 1);
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (const [w, c] of [[11, alpha(col, 0.22)], [5, col]]) {
+        ctx.lineWidth = w; ctx.strokeStyle = c;
+        for (const p of paths) {
+          if (p.length < 2) continue;
+          ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
+          for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]);
+          ctx.stroke();
+        }
+      }
+    }
+    for (const v of [m.a, m.b]) {
+      const y = g.fn(v);
+      if (!Number.isFinite(y)) continue;
+      const X = this.X(v), Y = this.Y(y);
+      if (X < -10 || X > this.W + 10 || Y < -10 || Y > this.H + 10) continue;
+      ctx.beginPath(); ctx.arc(X, Y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = col; ctx.fill();
+      ctx.lineWidth = 2; ctx.strokeStyle = this.theme.bg; ctx.stroke();
+    }
+  }
+
   drawLimits(m, g) {
     const ctx = this.ctx, T = this.theme;
     const Y0 = this.Y(0);
@@ -447,7 +477,7 @@ export class Graph2D {
       const Yf = Number.isFinite(fy) ? Math.max(-1e5, Math.min(1e5, this.Y(fy))) : Y0;
       ctx.setLineDash([5, 4]);
       ctx.lineWidth = 1.6;
-      ctx.strokeStyle = alpha(this.fc(g.color), 0.95);
+      ctx.strokeStyle = alpha(this.fc(g.color), m.surface ? 0.45 : 0.95);
       ctx.beginPath(); ctx.moveTo(X, Y0); ctx.lineTo(X, Yf); ctx.stroke();
       ctx.setLineDash([]);
       const active = this.hover === k || (this.drag && this.drag.mode === k);

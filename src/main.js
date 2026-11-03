@@ -20,6 +20,8 @@ const state = {
   axis: 'x',
   a: 0, b: 2, aSrc: '0', bSrc: '2',
   theta: 360,
+  dur: 3, // duração da animação da rotação, em segundos
+  surface: false, // false: sólido de revolução; true: superfície (só a casca)
   view: '2d',
   grid: 'full',
   axesOn: true,
@@ -40,7 +42,10 @@ const els = {
   ozNotice: $('#ozNotice'), empty3d: $('#empty3d'), anim3d: $('#btnAnim3d'),
   algMenu: $('#algMenu'), gearMenu: $('#gearMenu'), btnGear: $('#btnGear'), toast: $('#toast'),
   kbd: $('#kbd'), btnKbd: $('#btnKbd'), swatches: $('#swatches'), slOp: $('#slOp'), slRes: $('#slRes'),
+  chkSurf: $('#chkSurf'), solidTitle: $('#solidTitle'), btnGenTxt: $('#btnGenTxt'), inDur: $('#inDur'), durChips: $('#durChips'),
+  rVolRow: $('#rVolRow'), tgCaps: $('#tgCaps'),
 };
+const DUR_DEFAULT = 3;
 
 // ------------------------------------------------------------------- tema --
 function cssVar(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
@@ -66,7 +71,7 @@ function applyTheme(t) {
 const genFunc = () => state.funcs.find((f) => f.id === state.gen) || null;
 const model2d = () => ({
   funcs: state.funcs, gen: state.gen, a: state.a, b: state.b, axis: state.axis,
-  theta: state.theta * DEG, grid: state.grid, axesOn: state.axesOn,
+  theta: state.theta * DEG, grid: state.grid, axesOn: state.axesOn, surface: state.surface,
 });
 const graph = new Graph2D($('#cv2d'), model2d, {
   onLimits: (a, b, final) => {
@@ -162,7 +167,7 @@ function renderAlgebra() {
     const gen = f.id === state.gen;
     return `<div class="alg-item${gen ? ' gen' : ''}" data-id="${f.id}">
       <div class="alg-dotcol"><button class="alg-dot" style="--c:${f.color}" aria-pressed="${f.visible}" aria-label="${f.visible ? 'Esconder' : 'Mostrar'} ${escapeHTML(f.name)}" title="Mostrar/esconder"></button></div>
-      <div class="alg-main"><div class="alg-expr" tabindex="0" role="button" aria-label="Editar ${escapeHTML(f.name)}" title="Clica para editar"><span class="alg-nm">${escapeHTML(f.name)}</span>: y = ${f.p.html}</div>${gen ? '<div class="alg-badge">função geradora do sólido</div>' : ''}</div>
+      <div class="alg-main"><div class="alg-expr" tabindex="0" role="button" aria-label="Editar ${escapeHTML(f.name)}" title="Clica para editar"><span class="alg-nm">${escapeHTML(f.name)}</span>: y = ${f.p.html}</div>${gen ? `<div class="alg-badge">função geradora ${state.surface ? 'da superfície' : 'do sólido'}</div>` : ''}</div>
       <button class="alg-more" aria-label="Opções de ${escapeHTML(f.name)}"><svg class="ic"><use href="#i-more"/></svg></button>
     </div>`;
   }).join('');
@@ -292,6 +297,7 @@ els.axisSeg.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); setAxis(order[(i + 2) % 3]); els.axisSeg.querySelector(`[data-axis="${state.axis}"]`).focus(); }
 });
 els.genSel.addEventListener('change', () => { state.gen = +els.genSel.value; needFit3D = true; commit(); });
+els.chkSurf.addEventListener('change', () => { state.surface = els.chkSurf.checked; commit(); });
 
 function limitInput(which, commitNow) {
   const inp = which === 'a' ? els.inA : els.inB;
@@ -348,13 +354,42 @@ els.angChips.addEventListener('click', (e) => {
   if (b) setTheta(b.dataset.ang, true);
 });
 
+// duração da rotação (segundos)
+function setDur(v, final) {
+  const d = Math.round(Math.min(120, Math.max(0.5, +v || DUR_DEFAULT)) * 10) / 10;
+  state.dur = d;
+  if (anim) {
+    // mantém a fração já percorrida e continua com a nova velocidade
+    const t = anim.elapsed / anim.dur;
+    anim.dur = d * 1000;
+    anim.elapsed = t * anim.dur;
+  }
+  if (final) commit(); else frame();
+}
+els.inDur.addEventListener('input', () => { if (els.inDur.value !== '' && +els.inDur.value >= 0.5) setDur(els.inDur.value, false); });
+els.inDur.addEventListener('change', () => setDur(els.inDur.value, true));
+els.durChips.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-dur]');
+  if (b) setDur(b.dataset.dur, true);
+});
+
+// velocidade angular constante, com arranque e paragem suaves (6% do tempo em cada ponta)
+function progress(t) {
+  const r = 0.06, v = 1 / (1 - r);
+  if (t <= 0) return 0;
+  if (t >= 1) return 1;
+  if (t < r) return (v * t * t) / (2 * r);
+  if (t > 1 - r) return 1 - (v * (1 - t) * (1 - t)) / (2 * r);
+  return (v * r) / 2 + v * (t - r);
+}
+
 // animação da rotação: θ cresce de 0 até ao valor escolhido (pode ser pausada e retomada)
 let anim = null;
 const targetTheta = () => (anim ? anim.target : Math.round(state.theta));
 function startAnim() {
   if (!genFunc()) return;
   const target = targetTheta() || 360;
-  anim = { target, last: null, elapsed: 0, dur: 900 + 2400 * (target / 360), paused: false };
+  anim = { target, last: null, elapsed: 0, dur: state.dur * 1000, paused: false };
   setPlayIcons(true);
   requestAnimationFrame(stepAnim);
 }
@@ -364,8 +399,7 @@ function stepAnim(now) {
   if (anim.last !== null) anim.elapsed += Math.min(100, Math.max(0, now - anim.last));
   anim.last = now;
   const t = Math.min(1, anim.elapsed / anim.dur);
-  const e = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-  state.theta = Math.max(0.5, anim.target * e);
+  state.theta = Math.max(0.25, anim.target * progress(t));
   if (t >= 1) { state.theta = anim.target; anim = null; setPlayIcons(false); }
   doFrame();
   if (anim) requestAnimationFrame(stepAnim);
@@ -447,14 +481,18 @@ function update3D() {
   els.empty3d.hidden = has;
   els.anim3d.hidden = !has;
   els.ozNotice.hidden = !has || state.axis !== 'z';
+  const ozTxt = state.surface
+    ? '<b>Eixo Oz ⟂ plano xOy.</b> A curva roda dentro do próprio plano e varre uma <b>região plana</b> — não forma uma superfície no espaço. Para uma superfície "em pé", usa o eixo Oy.'
+    : '<b>Eixo Oz ⟂ plano xOy.</b> A região roda dentro do próprio plano da curva e varre uma <b>região plana</b> — não há sólido (volume 0). Para um sólido "em pé", usa o eixo Oy.';
+  if (els.ozNotice.dataset.txt !== ozTxt) { els.ozNotice.innerHTML = ozTxt; els.ozNotice.dataset.txt = ozTxt; }
   if (!has) {
     if (last3DKey !== 'none') { view3d.setData(null); last3DKey = 'none'; }
     return;
   }
-  const key = [g.id, g.src, g.color, state.a, state.b, state.axis, state.theta, state.look.res].join('|');
+  const key = [g.id, g.src, g.color, state.a, state.b, state.axis, state.theta, state.look.res, state.surface].join('|');
   if (key !== last3DKey) {
     last3DKey = key;
-    view3d.setData({ f: g.fn, a: state.a, b: state.b, axis: state.axis, theta: state.theta * DEG, res: state.look.res, fnColor: g.color });
+    view3d.setData({ f: g.fn, a: state.a, b: state.b, axis: state.axis, theta: state.theta * DEG, res: state.look.res, fnColor: g.color, surface: state.surface });
   }
   if (needFit3D) {
     view3d.fit('persp', !firstFit);
@@ -472,24 +510,37 @@ function updateMetrics() {
   const g = genFunc();
   if (!g) return;
   const th = state.theta;
-  const m = computeMetrics({ f: g.fn, df: g.p.df, a: state.a, b: state.b, axis: state.axis, theta: th * DEG, key: g.src });
+  const m = computeMetrics({ f: g.fn, df: g.p.df, a: state.a, b: state.b, axis: state.axis, theta: th * DEG, key: g.src, surface: state.surface });
+  const surf = state.surface;
+  els.rVolRow.hidden = surf;
+  els.rArea.parentElement.classList.toggle('big', surf);
   const thR = Math.round(th);
   els.rInt.textContent = `[${fmtValue(state.a)}, ${fmtValue(state.b)}]`;
   els.rAng.textContent = `${thR}° = ${piFrac(thR, 180)} rad`;
   if (m.flat) {
     els.rVol.innerHTML = '0 u.v. <span class="approx">(região plana)</span>';
-    els.rAreaK.textContent = 'Área da região varrida';
+    els.rAreaK.textContent = surf ? 'Área varrida pela curva' : 'Área da região varrida';
     els.rArea.innerHTML = `${m.exact ? '' : '≈ '}${fmtMetric(m.area)} u.a.${m.fracA ? `<span class="pif">= ${formatPiFraction(m.fracA)}</span>` : ''}`;
   } else {
     const inf = '∞ <span class="approx">(integral divergente)</span>';
     els.rVol.innerHTML = m.volume === Infinity ? inf : `${fmtMetric(m.volume)} u.v.${m.fracV ? `<span class="pif">≈ ${formatPiFraction(m.fracV)}</span>` : ''}`;
-    els.rAreaK.textContent = 'Área lateral';
+    els.rAreaK.textContent = surf ? 'Área da superfície' : 'Área lateral';
     els.rArea.innerHTML = m.area === Infinity ? inf : `${fmtMetric(m.area)} u.a.${m.fracA ? `<span class="pif">≈ ${formatPiFraction(m.fracA)}</span>` : ''}`;
   }
   const n = escapeHTML(g.name);
   const I = intHTML(state.a, state.b);
   let fh = '';
-  if (state.axis === 'x') {
+  const surfNote = `<span class="note">Superfície de revolução: a casca gerada pelo gráfico de ${n} entre a e b — sem as bases nem o interior.</span>`;
+  if (surf && state.axis === 'x') {
+    fh = `<span class="fl">A = ${piFrac(thR, 180)} ${I} |${n}(x)| √(1 + ${n}′(x)<sup>2</sup>) dx</span>
+      <span class="note">Cada pedaço ds da curva, à distância |${n}(x)| do eixo, gera uma faixa de área |${n}(x)|·θ·ds.</span>${surfNote}`;
+  } else if (surf && state.axis === 'y') {
+    fh = m.straddle && thR > 180
+      ? `<span class="fl">A = área da união (cálculo numérico)</span>
+        <span class="note">Como [a, b] contém x = 0, as partes da curva com x &lt; 0 e x &gt; 0 podem gerar a mesma superfície ao rodar mais de 180°; essa parte conta uma só vez.</span>${surfNote}`
+      : `<span class="fl">A = ${piFrac(thR, 180)} ${I} |x| √(1 + ${n}′(x)<sup>2</sup>) dx</span>
+        <span class="note">Cada pedaço ds da curva, à distância |x| do eixo, gera uma faixa de área |x|·θ·ds.</span>${surfNote}`;
+  } else if (state.axis === 'x') {
     const c = piFrac(thR, 360);
     fh = `<span class="fl">V = ${c} ${I} [${n}(x)]<sup>2</sup> dx</span>
       <span class="fl">A = ${piFrac(thR, 180)} ${I} |${n}(x)| √(1 + ${n}′(x)<sup>2</sup>) dx</span>
@@ -506,7 +557,7 @@ function updateMetrics() {
     }
   } else {
     fh = `<span class="fl">V = 0</span>
-      <span class="note">O eixo Oz é perpendicular ao plano xOy da curva, por isso a região roda dentro do próprio plano. ${m.exact ? `Com 360° varre uma coroa circular: π(ρ<sub>máx</sub><sup>2</sup> − ρ<sub>mín</sub><sup>2</sup>), com ρ<sub>mín</sub> = ${fmtValue(m.rhoMin)} e ρ<sub>máx</sub> = ${fmtValue(m.rhoMax)}.` : 'A área da região varrida é estimada numericamente.'}</span>`;
+      <span class="note">O eixo Oz é perpendicular ao plano xOy da curva, por isso ${surf ? 'a curva' : 'a região'} roda dentro do próprio plano. ${m.exact ? `Com 360° varre uma coroa circular: π(ρ<sub>máx</sub><sup>2</sup> − ρ<sub>mín</sub><sup>2</sup>), com ρ<sub>mín</sub> = ${fmtValue(m.rhoMin)} e ρ<sub>máx</sub> = ${fmtValue(m.rhoMax)}.` : 'A área da região varrida é estimada numericamente.'}</span>`;
   }
   els.rFormula.innerHTML = fh;
   els.rWarn.innerHTML = m.warnings.map((w) => `<div class="warn">${escapeHTML(w)}</div>`).join('');
@@ -542,6 +593,14 @@ function syncControls() {
   if (document.activeElement !== els.inT) els.inT.value = th;
   for (const b of $$('button', els.angChips)) b.classList.toggle('on', +b.dataset.ang === th && !anim);
   els.btnGen.hidden = state.view !== '2d';
+  els.chkSurf.checked = state.surface;
+  els.solidTitle.textContent = state.surface ? 'Superfície de revolução' : 'Sólido de revolução';
+  els.btnGenTxt.textContent = state.surface ? 'Gerar superfície 3D' : 'Gerar sólido 3D';
+  const subs = state.surface ? { x: 'casca', y: 'casca', z: 'plano' } : { x: 'discos', y: 'cascas', z: 'plano' };
+  for (const b of $$('button', els.axisSeg)) b.querySelector('.ax-sub').textContent = subs[b.dataset.axis];
+  els.tgCaps.hidden = state.surface;
+  if (document.activeElement !== els.inDur) els.inDur.value = state.dur;
+  for (const b of $$('button', els.durChips)) b.classList.toggle('on', +b.dataset.dur === state.dur);
   for (const cb of $$('[data-look]')) cb.checked = !!state.look[cb.dataset.look];
   els.slOp.value = state.look.opacity;
   els.slRes.value = state.look.res;
@@ -592,6 +651,8 @@ function serialize(withView = true) {
     p.set('a', state.aSrc);
     p.set('b', state.bSrc);
     p.set('ang', String(targetTheta()));
+    if (state.surface) p.set('tipo', 'superficie');
+    if (state.dur !== DUR_DEFAULT) p.set('dur', String(state.dur));
   }
   if (withView && state.view !== '2d') p.set('vista', state.view);
   return p.toString();
@@ -625,6 +686,9 @@ function applyState(str, { keepView = false } = {}) {
   }
   const ang = +p.get('ang');
   state.theta = Number.isFinite(ang) && ang >= 1 && ang <= 360 ? Math.round(ang) : 360;
+  state.surface = p.get('tipo') === 'superficie';
+  const dur = +p.get('dur');
+  state.dur = Number.isFinite(dur) && dur >= 0.5 && dur <= 120 ? Math.round(dur * 10) / 10 : DUR_DEFAULT;
   if (!keepView) {
     const v = p.get('vista');
     setView(['2d', '3d', 'split'].includes(v) ? v : '2d', false);
@@ -739,7 +803,7 @@ $('#btnShare').addEventListener('click', async () => {
   const url = location.href;
   try {
     await navigator.clipboard.writeText(url);
-    toast('Ligação copiada — inclui a função, o eixo, os limites e o ângulo.');
+    toast('Ligação copiada — inclui a função, o eixo, os limites, o ângulo e o modo.');
   } catch (e) {
     window.prompt('Copia esta ligação:', url);
   }
