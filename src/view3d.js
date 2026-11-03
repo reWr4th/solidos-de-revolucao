@@ -192,7 +192,7 @@ export class View3D {
     this.resize();
     const loop = () => {
       requestAnimationFrame(loop);
-      if (!this.w || !this.h) return;
+      if (this.capturing || !this.w || !this.h) return;
       let changed = this.dirty;
       if (this.camAnim) changed = this.stepCamAnim() || changed;
       if (this.controls.update()) changed = true;
@@ -205,7 +205,7 @@ export class View3D {
   }
 
   resize() {
-    if (!this.ok) return;
+    if (!this.ok || this.capturing) return;
     const r = this.container.getBoundingClientRect();
     this.w = Math.round(r.width);
     this.h = Math.round(r.height);
@@ -220,9 +220,10 @@ export class View3D {
     if (this.pendingFit) { const p = this.pendingFit; this.pendingFit = null; this.fit(p, false); }
   }
 
-  scaleLabels() {
-    if (!this.h) return;
-    const k = (2 * Math.tan(((this.camera.fov / 2) * Math.PI) / 180)) / this.h;
+  // refH: altura (px) de referência; as etiquetas ocupam a mesma fração da imagem que no ecrã
+  scaleLabels(refH = this.h) {
+    if (!refH) return;
+    const k = (2 * Math.tan(((this.camera.fov / 2) * Math.PI) / 180)) / refH;
     for (const s of this.gLabels.children) s.scale.set(s.userData.px[0] * k, s.userData.px[1] * k, 1);
   }
 
@@ -468,22 +469,8 @@ export class View3D {
     if (!this.ok) return;
     this.preset = preset;
     if (!this.w || !this.h) { this.pendingFit = preset; return; }
-    const b = this.solid ? this.solid.bounds : { min: [-4, -4, -4], max: [4, 4, 4] };
-    const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
-    const center = min.clone().add(max).multiplyScalar(0.5);
-    const radius = Math.max(min.distanceTo(max) / 2, 0.5) * 1.04;
-    const vfov = (this.camera.fov * Math.PI) / 180;
-    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * this.camera.aspect);
-    const fov = Math.min(vfov, hfov);
-    const dist = radius / Math.sin(fov / 2);
-    const axis = this.data ? this.data.axis : 'x';
-    let dir = preset === 'persp' ? PERSP[axis].clone() : (PRESETS[preset] || PERSP.x).clone();
-    // em Ox, a câmara fica do lado da base mais pequena (a maior não tapa a superfície lateral)
-    if (preset === 'persp' && axis === 'x' && this.solid) {
-      const ys = this.solid.prof.ys;
-      if (Math.abs(ys[0]) < Math.abs(ys[ys.length - 1]) - 1e-9) dir.x = -dir.x;
-    }
-    const pos = center.clone().addScaledVector(dir, dist);
+    const dir = this.presetDir(preset);
+    const { center, dist, pos } = this.framing(dir, this.camera.aspect);
     this.camera.near = Math.max(dist / 500, 0.001);
     this.camera.far = dist * 60;
     this.camera.updateProjectionMatrix();
@@ -501,6 +488,80 @@ export class View3D {
       p0: this.camera.position.clone(), p1: pos,
       c0: this.controls.target.clone(), c1: center,
     };
+  }
+
+  presetDir(preset) {
+    const axis = this.data ? this.data.axis : 'x';
+    const dir = preset === 'persp' ? PERSP[axis].clone() : (PRESETS[preset] || PERSP.x).clone();
+    // em Ox, a câmara fica do lado da base mais pequena (a maior não tapa a superfície lateral)
+    if (preset === 'persp' && axis === 'x' && this.solid) {
+      const ys = this.solid.prof.ys;
+      if (Math.abs(ys[0]) < Math.abs(ys[ys.length - 1]) - 1e-9) dir.x = -dir.x;
+    }
+    return dir;
+  }
+
+  // centro e distância que enquadram o sólido numa direção e proporção dadas
+  framing(dir, aspect) {
+    const b = this.solid ? this.solid.bounds : { min: [-4, -4, -4], max: [4, 4, 4] };
+    const min = new THREE.Vector3(...b.min), max = new THREE.Vector3(...b.max);
+    const center = min.clone().add(max).multiplyScalar(0.5);
+    const radius = Math.max(min.distanceTo(max) / 2, 0.5) * 1.04;
+    const vfov = (this.camera.fov * Math.PI) / 180;
+    const hfov = 2 * Math.atan(Math.tan(vfov / 2) * aspect);
+    const dist = radius / Math.sin(Math.min(vfov, hfov) / 2);
+    return { center, dist, pos: center.clone().addScaledVector(dir, dist) };
+  }
+
+  // ------------------------------------------------------ captura de vídeo --
+  // Renderiza fotogramas com w × h píxeis, com a câmara atual (ou reenquadrada na mesma direção).
+  beginCapture(w, h, { fit = true } = {}) {
+    if (!this.ok) throw new Error('A vista 3D não está disponível (WebGL).');
+    this.capturing = true;
+    this.camAnim = null;
+    this.saved = {
+      pr: this.renderer.getPixelRatio(), pos: this.camera.position.clone(), target: this.controls.target.clone(),
+      near: this.camera.near, far: this.camera.far, aspect: this.camera.aspect,
+    };
+    this.renderer.setPixelRatio(1);
+    this.renderer.setSize(w, h, false);
+    this.camera.aspect = w / h;
+    let target = this.controls.target.clone();
+    // se a vista 3D ainda não foi mostrada, a câmara ainda não foi enquadrada: usa a vista padrão
+    if (fit || this.pendingFit) {
+      const dir = this.pendingFit ? this.presetDir(this.pendingFit) : this.camera.position.clone().sub(this.controls.target).normalize();
+      const F = this.framing(dir, w / h);
+      this.camera.position.copy(F.pos);
+      target = F.center;
+      this.camera.near = Math.max(F.dist / 500, 0.001);
+      this.camera.far = F.dist * 60;
+    }
+    this.camera.lookAt(target);
+    this.camera.updateProjectionMatrix();
+    this.scaleLabels(this.h || Math.round(h * 0.8));
+  }
+
+  renderCapture() {
+    this.renderer.render(this.scene, this.camera);
+    return this.canvas;
+  }
+
+  endCapture() {
+    if (!this.capturing) return;
+    const S = this.saved;
+    this.renderer.setPixelRatio(S.pr);
+    this.camera.position.copy(S.pos);
+    this.controls.target.copy(S.target);
+    this.camera.near = S.near;
+    this.camera.far = S.far;
+    this.camera.aspect = S.aspect;
+    this.camera.updateProjectionMatrix();
+    this.capturing = false;
+    this.resize();
+    this.scaleLabels();
+    this.camera.lookAt(this.controls.target);
+    this.controls.update();
+    this.dirty = true;
   }
 
   stepCamAnim() {

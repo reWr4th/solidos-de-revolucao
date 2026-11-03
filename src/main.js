@@ -6,6 +6,7 @@ import { parseDefinition, evalConstant } from './parser.js';
 import { computeMetrics, defaultLimits, formatPiFraction } from './numerics.js';
 import { Graph2D, fmtValue } from './graph2d.js';
 import { View3D } from './view3d.js';
+import { videoFormat, encodeVideo, drawCaption, bitrateFor } from './video.js';
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -458,6 +459,165 @@ els.swatches.addEventListener('click', (e) => {
   syncControls();
 });
 
+// --------------------------------------------------------------------- vídeo --
+const vid = {
+  dlg: $('#videoDlg'), sum: $('#vSummary'), res: $('#vRes'), fps: $('#vFps'), cap: $('#vCaption'), fit: $('#vFit'),
+  hold: $('#vHold'), info: $('#vInfo'), prog: $('#vProg'), bar: $('#vBar'), progTxt: $('#vProgTxt'), link: $('#vLink'),
+  cancel: $('#vCancel'), start: $('#vStart'), close: $('#vClose'),
+  opts: { res: '1080', fps: 30 }, busy: false, ctrl: null, url: null, format: null,
+};
+const videoSize = (r) => (r === '720' ? [1280, 720] : r === 'sq' ? [1080, 1080] : [1920, 1080]);
+function videoFrames() {
+  const fps = vid.opts.fps;
+  const rot = Math.max(2, Math.round(state.dur * fps)) + 1;
+  const hold = vid.hold.checked ? fps : 0;
+  return { fps, rot, hold, total: rot + hold };
+}
+const fmtSec = (d) => String(d).replace('.', ',') + ' s';
+function lookSummary() {
+  const L = state.look;
+  return [
+    L.grid ? 'com grelha' : 'sem grelha',
+    L.axes ? 'com eixos' : 'sem eixos',
+    L.mesh ? 'com malha' : null,
+    L.curve ? null : 'sem curva geradora',
+    !state.surface && !L.caps ? 'sem secções de corte' : null,
+    L.opacity < 0.999 ? `opacidade ${Math.round(L.opacity * 100)}%` : null,
+    state.theme === 'dark' ? 'tema escuro' : 'tema claro',
+  ].filter(Boolean).join(', ');
+}
+function metricLine(m, surf) {
+  if (m.flat) return `área varrida ≈ ${fmtMetric(m.area)} u.a.`;
+  if (surf) return m.area === Infinity ? 'A = ∞' : `A = ${fmtMetric(m.area)} u.a.`;
+  return m.volume === Infinity ? 'V = ∞' : `V = ${fmtMetric(m.volume)} u.v.`;
+}
+function syncVideoUI() {
+  for (const b of $$('button', vid.res)) b.setAttribute('aria-checked', b.dataset.res === vid.opts.res);
+  for (const b of $$('button', vid.fps)) b.setAttribute('aria-checked', +b.dataset.fps === vid.opts.fps);
+  for (const el of [...$$('button', vid.res), ...$$('button', vid.fps), vid.cap, vid.fit, vid.hold]) el.disabled = vid.busy;
+  vid.start.hidden = vid.busy;
+  vid.cancel.hidden = !vid.busy;
+}
+let infoSeq = 0;
+async function refreshVideoInfo() {
+  const g = genFunc();
+  if (!g) return;
+  const [w, h] = videoSize(vid.opts.res);
+  const { fps, total } = videoFrames();
+  const secs = total / fps;
+  vid.sum.innerHTML = `Rotação ${state.surface ? 'da superfície' : 'do sólido'} gerad${state.surface ? 'a' : 'o'} por <b>${escapeHTML(g.name)}</b> em torno de <b>O${state.axis}</b>, de 0° a <b>${targetTheta()}°</b> em <b>${fmtSec(state.dur)}</b>${vid.hold.checked ? ' (mais 1 s parado no fim)' : ''}, ${lookSummary()}. A duração muda-se em "Duração da rotação".`;
+  const seq = ++infoSeq;
+  const fmt = await videoFormat(w, h, fps);
+  if (seq !== infoSeq) return;
+  vid.format = fmt;
+  const mb = (bitrateFor(w, h, fps) * secs) / 8 / 1e6;
+  vid.info.textContent = fmt
+    ? `${fmt.label} · ${w} × ${h} · ${fps} fps · ${secs.toFixed(1).replace('.', ',')} s · ≈ ${mb < 1 ? mb.toFixed(1).replace('.', ',') : Math.round(mb)} MB`
+    : 'Este navegador não consegue gerar vídeo. Experimenta uma versão recente do Chrome, Edge, Firefox ou Safari.';
+  vid.start.disabled = !fmt;
+}
+function openVideo() {
+  if (!genFunc() || vid.busy) return;
+  stopAnim();
+  frame();
+  vid.prog.hidden = true;
+  vid.link.hidden = true;
+  syncVideoUI();
+  refreshVideoInfo();
+  if (vid.dlg.showModal) vid.dlg.showModal(); else vid.dlg.setAttribute('open', '');
+}
+function setVideoProgress(p, text) {
+  vid.prog.hidden = false;
+  vid.bar.style.width = Math.round(p * 100) + '%';
+  vid.progTxt.textContent = text;
+}
+async function recordVideo() {
+  const g = genFunc();
+  if (!g || vid.busy) return;
+  const [W, H] = videoSize(vid.opts.res);
+  const { fps, rot, total } = videoFrames();
+  const fmt = vid.format || (await videoFormat(W, H, fps));
+  if (!fmt) return;
+  vid.busy = true;
+  vid.ctrl = new AbortController();
+  vid.link.hidden = true;
+  syncVideoUI();
+  setVideoProgress(0, 'A preparar…');
+  stopAnim();
+  const target = targetTheta();
+  const base = { f: g.fn, a: state.a, b: state.b, axis: state.axis, res: state.look.res, fnColor: g.color, surface: state.surface };
+  const out = document.createElement('canvas');
+  out.width = W; out.height = H;
+  const octx = out.getContext('2d');
+  const caption = vid.cap.checked;
+  const dark = state.theme === 'dark';
+  const title = `${g.name}(x) = ${g.p.text}`;
+  const line2 = `${state.surface ? 'Superfície' : 'Sólido'} de revolução · eixo O${state.axis} · x ∈ [${fmtValue(state.a)}, ${fmtValue(state.b)}]`;
+  const metricCache = new Map();
+  let lastDeg = null;
+  const setDeg = (deg) => {
+    if (deg === lastDeg) return;
+    lastDeg = deg;
+    view3d.setData({ ...base, theta: Math.max(deg, 0.01) * DEG });
+  };
+  try {
+    setDeg(0);
+    view3d.beginCapture(W, H, { fit: vid.fit.checked });
+    const drawFrame = (i) => {
+      const deg = i < rot ? target * progress(i / (rot - 1)) : target;
+      setDeg(deg);
+      octx.drawImage(view3d.renderCapture(), 0, 0, W, H);
+      if (caption) {
+        const k = deg.toFixed(1);
+        let line3 = metricCache.get(k);
+        if (!line3) {
+          const m = computeMetrics({ f: g.fn, df: g.p.df, a: state.a, b: state.b, axis: state.axis, theta: deg * DEG, key: g.src, surface: state.surface });
+          line3 = `θ = ${Math.round(deg)}°    ${metricLine(m, state.surface)}`;
+          metricCache.set(k, line3);
+        }
+        drawCaption(octx, W, H, [title, line2, line3], dark);
+      }
+      return out;
+    };
+    const blob = await encodeVideo({
+      width: W, height: H, fps, frames: total, drawFrame, format: fmt, signal: vid.ctrl.signal,
+      onProgress: (p) => setVideoProgress(p, `A gravar… ${Math.round(p * 100)}%`),
+    });
+    if (vid.url) URL.revokeObjectURL(vid.url);
+    vid.url = URL.createObjectURL(blob);
+    const file = `${state.surface ? 'superficie' : 'solido'}-revolucao_${g.name}_eixo-O${state.axis}_${target}graus.${fmt.ext}`;
+    vid.link.href = vid.url;
+    vid.link.download = file;
+    vid.link.hidden = false;
+    setVideoProgress(1, `Vídeo pronto (${(blob.size / 1e6).toFixed(1).replace('.', ',')} MB) — a transferência começou.`);
+    vid.link.click();
+  } catch (e) {
+    if (e && e.name === 'AbortError') setVideoProgress(0, 'Gravação cancelada.');
+    else setVideoProgress(0, 'Não foi possível gravar o vídeo: ' + ((e && e.message) || e));
+  } finally {
+    view3d.endCapture();
+    vid.busy = false;
+    vid.ctrl = null;
+    last3DKey = '';
+    syncVideoUI();
+    doFrame();
+  }
+}
+for (const b of [$('#btnVid3d'), $('#btnVid')]) b.addEventListener('click', openVideo);
+vid.res.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-res]');
+  if (b && !vid.busy) { vid.opts.res = b.dataset.res; syncVideoUI(); refreshVideoInfo(); }
+});
+vid.fps.addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-fps]');
+  if (b && !vid.busy) { vid.opts.fps = +b.dataset.fps; syncVideoUI(); refreshVideoInfo(); }
+});
+vid.hold.addEventListener('change', refreshVideoInfo);
+vid.start.addEventListener('click', recordVideo);
+vid.cancel.addEventListener('click', () => { if (vid.ctrl) vid.ctrl.abort(); });
+vid.close.addEventListener('click', () => { if (vid.ctrl) vid.ctrl.abort(); vid.dlg.close(); });
+vid.dlg.addEventListener('cancel', () => { if (vid.ctrl) vid.ctrl.abort(); });
+
 // ------------------------------------------------------------ atualização --
 let frameReq = 0;
 function frame() {
@@ -479,7 +639,8 @@ function update3D() {
   const g = genFunc();
   const has = !!g && state.b > state.a;
   els.empty3d.hidden = has;
-  els.anim3d.hidden = !has;
+  $('#animRow').hidden = !has;
+  if (vid.busy) return; // durante a gravação de vídeo é a gravação que controla o sólido
   els.ozNotice.hidden = !has || state.axis !== 'z';
   const ozTxt = state.surface
     ? '<b>Eixo Oz ⟂ plano xOy.</b> A curva roda dentro do próprio plano e varre uma <b>região plana</b> — não forma uma superfície no espaço. Para uma superfície "em pé", usa o eixo Oy.'

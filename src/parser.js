@@ -655,6 +655,75 @@ export function toHTML(ast) {
   return pp(ast).h;
 }
 
+// ----------------------------------------------------------- texto simples --
+// (para a legenda do vídeo): x² − x + 2, 4 ln(x + 1) − 0.2 sen(2x), √(4 − x²)
+const SUPC = { 0: '⁰', 1: '¹', 2: '²', 3: '³', 4: '⁴', 5: '⁵', 6: '⁶', 7: '⁷', 8: '⁸', 9: '⁹', '-': '⁻' };
+const SUBC = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
+const sup = (n) => String(n).split('').map((c) => SUPC[c] || c).join('');
+const sub = (n) => String(n).split('').map((c) => SUBC[c] || c).join('');
+const par = (t) => `(${t})`;
+
+function tt(n) {
+  switch (n.t) {
+    case 'num': return { s: n.v < 0 ? '−' + fmtNum(-n.v) : fmtNum(n.v), p: n.v < 0 ? P_NEG : P_ATOM };
+    case 'const': return { s: n.name === 'pi' ? 'π' : 'e', p: P_ATOM };
+    case 'var': return { s: 'x', p: P_ATOM };
+    case 'neg': { const A = tt(n.a); return { s: '−' + (A.p <= P_NEG ? par(A.s) : A.s), p: P_NEG }; }
+    case 'add': {
+      const A = tt(n.a);
+      if (n.b.t === 'neg') { const B = tt(n.b.a); return { s: `${A.s} − ${B.p <= P_ADD ? par(B.s) : B.s}`, p: P_ADD }; }
+      return { s: `${A.s} + ${tt(n.b).s}`, p: P_ADD };
+    }
+    case 'sub': { const A = tt(n.a), B = tt(n.b); return { s: `${A.s} − ${B.p <= P_NEG ? par(B.s) : B.s}`, p: P_ADD }; }
+    case 'mul': {
+      const A = tt(n.a), B = tt(n.b);
+      const as = (A.p < P_MUL && n.a.t !== 'neg') || n.a.t === 'div' ? par(A.s) : A.s;
+      const bw = B.p < P_MUL || n.b.t === 'neg' || n.b.t === 'div';
+      const bs = bw ? par(B.s) : B.s;
+      const lb = leftmost(n.b);
+      let sep = '';
+      if (!bw && lb.t === 'num') sep = ' · ';
+      else if (!bw && (n.b.t === 'call' || lb.t === 'call' || n.a.t === 'call')) sep = ' ';
+      return { s: as + sep + bs, p: P_MUL };
+    }
+    case 'div': {
+      const A = tt(n.a), B = tt(n.b);
+      return { s: `${A.p < P_ATOM ? par(A.s) : A.s}/${B.p < P_ATOM ? par(B.s) : B.s}`, p: P_MUL };
+    }
+    case 'pow': {
+      const intExp = isNum(n.b) && Number.isInteger(n.b.v);
+      if (n.a.t === 'call' && TRIG_LIKE.has(n.a.fn) && intExp && n.b.v > 0) {
+        return { s: `${DISP[n.a.fn]}${sup(n.b.v)}(${tt(n.a.args[0]).s})`, p: P_ATOM };
+      }
+      const A = tt(n.a);
+      const wrapBase = A.p < P_ATOM || n.a.t === 'pow' || (n.a.t === 'call' && ['sqrt', 'cbrt', 'nroot', 'exp'].includes(n.a.fn));
+      const base = wrapBase ? par(A.s) : A.s;
+      if (intExp) return { s: base + sup(n.b.v), p: P_POW };
+      const E = tt(n.b);
+      return { s: `${base}^${E.p < P_ATOM ? par(E.s) : E.s}`, p: P_POW };
+    }
+    case 'call': {
+      const args = n.args.map((a) => tt(a));
+      const one = args[0];
+      const rad = (sym) => (one.p >= P_ATOM && one.s.length <= 2 ? sym + one.s : `${sym}(${one.s})`);
+      switch (n.fn) {
+        case 'sqrt': return { s: rad('√'), p: P_ATOM };
+        case 'cbrt': return { s: rad('∛'), p: P_ATOM };
+        case 'nroot': return { s: isNum(n.args[1]) && Number.isInteger(n.args[1].v) ? `${sup(n.args[1].v)}√(${one.s})` : `nroot(${one.s}, ${args[1].s})`, p: P_ATOM };
+        case 'abs': return { s: `|${one.s}|`, p: P_ATOM };
+        case 'exp': return { s: `e^${one.p >= P_ATOM ? one.s : par(one.s)}`, p: P_POW };
+        case 'logb': return { s: isNum(n.args[0]) && Number.isInteger(n.args[0].v) ? `log${sub(n.args[0].v)}(${args[1].s})` : `log(${args[0].s}, ${args[1].s})`, p: P_ATOM };
+        default: return { s: `${DISP[n.fn] || n.fn}(${args.map((a) => a.s).join(', ')})`, p: P_ATOM };
+      }
+    }
+  }
+  return { s: '?', p: P_ATOM };
+}
+
+export function toText(ast) {
+  return tt(ast).s;
+}
+
 // ------------------------------------------------------- definição completa --
 
 const RESERVED = new Set(['x', 'y', 'e', 'pi']);
@@ -683,7 +752,7 @@ export function parseDefinition(input) {
   const num = numericDerivative(fn);
   // derivada final: simbólica quando existe; numérica como recurso
   const df = dfn ? (x) => { const v = dfn(x); return Number.isNaN(v) ? num(x) : v; } : num;
-  return { name, rhs, ast, fn, df, html: toHTML(ast), dependsOnX: hasVar(ast) };
+  return { name, rhs, ast, fn, df, html: toHTML(ast), text: toText(ast), dependsOnX: hasVar(ast) };
 }
 
 // Avalia uma expressão constante (limites a e b: "pi", "2pi/3", "sqrt(2)")

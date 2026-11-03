@@ -12,6 +12,7 @@ Visualizador interativo de sólidos de revolução, com uma interface inspirada 
 4. **Ângulo θ** — de 1° a 360° (por exemplo 240° para ver o interior do sólido). O botão ▶ anima a rotação e a **duração da rotação** (0,5 s a 120 s) define quanto tempo demora: 1 s para uma rotação quase instantânea, 30 s para ver o sólido a formar-se devagar.
 5. **Sólido ou superfície** — com **Superfície de revolução** ativo, só o gráfico de f roda e obtém-se a casca (sem bases nem interior), com a face exterior e a interior em cores diferentes.
 6. **Gerar sólido 3D** — a simulação mostra o sólido (ou a superfície), as secções de corte, a curva geradora e o eixo de rotação, com volume e área.
+7. **Vídeo** — grava a rotação de 0° até θ com a duração e o aspeto atuais (grelha, eixos, malha, cores, tema) e transfere um MP4 (H.264): 720p, 1080p ou quadrado, a 30 ou 60 fps, com legenda opcional (função, eixo, ângulo e volume a crescer). Cada fotograma é gerado no ângulo exato, por isso o vídeo sai fluido mesmo num computador lento.
 
 Outras funcionalidades: vista 2D + 3D lado a lado, vistas da câmara (3D, frente, lado, cima), malha, opacidade, cores, tema escuro, teclado matemático, desfazer/refazer e o botão **Partilhar**, que copia uma ligação com a função e todos os parâmetros.
 
@@ -45,4 +46,4 @@ npm test        # testes do interpretador e dos integrais
 npm run build   # gera index.html
 ```
 
-Feito com [three.js](https://threejs.org) (licença MIT) para a vista 3D.
+Feito com [three.js](https://threejs.org) (licença MIT) para a vista 3D e [mp4-muxer](https://github.com/Vanilagy/mp4-muxer) (licença MIT) para os vídeos.

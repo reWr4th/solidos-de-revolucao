@@ -35,6 +35,8 @@
     <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6.5" y="5" width="3.6" height="14" rx="1" fill="currentColor"/><rect x="13.9" y="5" width="3.6" height="14" rx="1" fill="currentColor"/></symbol>
     <symbol id="i-kbd" viewBox="0 0 24 24"><rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6.5 10h.01M10 10h.01M14 10h.01M17.5 10h.01M7.5 14h9"/></symbol>
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><rect x="2.5" y="6" width="13.5" height="12" rx="2.2"/><path d="m16 10.2 5.5-3.2v10l-5.5-3.2z"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11.5M7.2 10.4 12 15.2l4.8-4.8"/><path d="M4.5 19.5h15"/></symbol>
   </defs>
 </svg>
 
@@ -149,6 +151,7 @@
             <button data-dur="1">1 s</button><button data-dur="3">3 s</button><button data-dur="10">10 s</button><button data-dur="30">30 s</button><button data-dur="60">60 s</button>
           </div>
           <div class="hint">Tempo que a animação ▶ demora a rodar de 0° até θ, a velocidade constante. Podes mudá-lo durante a animação.</div>
+          <button class="btn-secondary block" id="btnVid"><svg class="ic"><use href="#i-video"/></svg>Transferir vídeo da rotação</button>
         </div>
         <button class="btn-primary block" id="btnGen"><svg class="ic"><use href="#i-cube"/></svg><span id="btnGenTxt">Gerar sólido 3D</span></button>
       </section>
@@ -241,7 +244,10 @@
         <b>Eixo Oz ⟂ plano xOy.</b> A região roda dentro do próprio plano da curva e varre uma <b>região plana</b> — não há sólido (volume 0). Para um sólido "em pé", usa o eixo Oy.
       </div>
       <div class="empty3d" id="empty3d">Escreve uma função na Entrada para gerar o sólido (ou a superfície) de revolução.</div>
-      <button class="anim-btn" id="btnAnim3d"><svg class="ic"><use href="#i-play"/></svg><span>Animar rotação</span></button>
+      <div class="anim-row" id="animRow">
+        <button class="anim-btn" id="btnAnim3d"><svg class="ic"><use href="#i-play"/></svg><span>Animar rotação</span></button>
+        <button class="anim-btn alt" id="btnVid3d" title="Transferir vídeo da rotação"><svg class="ic"><use href="#i-video"/></svg><span>Vídeo</span></button>
+      </div>
       <div class="fab-col">
         <button class="fab" data-z3="home" aria-label="Enquadrar o sólido" title="Enquadrar o sólido"><svg class="ic"><use href="#i-home"/></svg></button>
         <button class="fab" data-z3="in" aria-label="Aproximar" title="Aproximar"><svg class="ic"><use href="#i-zin"/></svg></button>
@@ -264,6 +270,7 @@
       <li><b>Eixo de rotação.</b> Ox (método dos discos), Oy (método das cascas cilíndricas) ou Oz. A curva está no plano xOy, por isso Oz é perpendicular a esse plano: a região roda dentro do próprio plano e o resultado é uma região plana (volume 0).</li>
       <li><b>Limites a e b.</b> Escreve-os (aceita <code>pi</code>, <code>2pi/3</code>, <code>sqrt(2)</code>), usa os cursores ou arrasta os pontos a e b no gráfico 2D.</li>
       <li><b>Ângulo θ.</b> De 1° a 360° (por ex. 240° para ver o interior). O botão ▶ anima a rotação; em "Duração da rotação" escolhes quanto tempo demora (de 0,5 s a 120 s), por exemplo 1 s para uma rotação quase instantânea ou 30 s para veres o sólido a formar-se devagar.</li>
+      <li><b>Vídeo.</b> O botão "Vídeo" (ou "Transferir vídeo da rotação") grava a rotação de 0° até θ com a duração escolhida e o aspeto atual (grelha, eixos, malha, cores, tema) e transfere um ficheiro MP4.</li>
       <li><b>Sólido ou superfície.</b> Com "Superfície de revolução" ativo, só a curva roda: obténs a casca (sem bases nem interior). Por fora tem a cor escolhida e por dentro um tom mais claro; mostra-se a área da superfície.</li>
     </ol>
     <h3>O que é calculado</h3>
@@ -279,6 +286,40 @@
     <p><code>+ − * / ^</code>, multiplicação implícita (<code>2x</code>, <code>3sen x</code>, <code>(x+1)(x−1)</code>), <code>sen</code> <code>cos</code> <code>tg</code> <code>cotg</code> <code>arcsen</code> <code>arccos</code> <code>arctg</code> <code>ln</code> <code>log</code> (base 10) <code>log(b, x)</code> <code>exp</code> <code>e^x</code> <code>sqrt</code>/<code>raiz</code> <code>cbrt</code> <code>nroot(x, n)</code> <code>|x|</code>/<code>abs</code> <code>pi</code>. Decimais com ponto (<code>0.5</code>) ou vírgula sem espaços (<code>0,5</code>).</p>
     <h3>Navegação</h3>
     <p><b>2D:</b> arrastar desloca, a roda do rato (ou dois dedos) faz zoom. <b>3D:</b> arrastar roda a câmara, botão direito (ou dois dedos) desloca, a roda faz zoom. O botão "Partilhar" copia uma ligação com a função e os parâmetros atuais.</p>
+  </div>
+</dialog>
+
+<dialog id="videoDlg" class="help vdlg" aria-labelledby="vTitle">
+  <div class="help-h"><h2 id="vTitle">Transferir vídeo</h2><button class="icon-btn" id="vClose" aria-label="Fechar"><svg class="ic"><use href="#i-close"/></svg></button></div>
+  <div class="help-body">
+    <p class="v-sum" id="vSummary"></p>
+    <div class="field">
+      <div class="lbl" id="vResLbl">Resolução</div>
+      <div class="seg seg-sm" id="vRes" role="radiogroup" aria-labelledby="vResLbl">
+        <button data-res="720" role="radio">720p<small>1280 × 720</small></button>
+        <button data-res="1080" role="radio">1080p<small>1920 × 1080</small></button>
+        <button data-res="sq" role="radio">Quadrado<small>1080 × 1080</small></button>
+      </div>
+    </div>
+    <div class="field">
+      <div class="lbl" id="vFpsLbl">Fotogramas por segundo</div>
+      <div class="seg seg-sm" id="vFps" role="radiogroup" aria-labelledby="vFpsLbl">
+        <button data-fps="30" role="radio">30 fps</button>
+        <button data-fps="60" role="radio">60 fps<small>mais fluido</small></button>
+      </div>
+    </div>
+    <div class="v-opts">
+      <label class="tg"><input type="checkbox" id="vCaption" checked><span>Legenda com a função, o eixo, o ângulo e o volume</span></label>
+      <label class="tg"><input type="checkbox" id="vFit" checked><span>Enquadrar o sólido (mantém a direção atual da câmara)</span></label>
+      <label class="tg"><input type="checkbox" id="vHold" checked><span>Manter a imagem final durante 1 s</span></label>
+    </div>
+    <div class="v-info" id="vInfo"></div>
+    <div class="v-progress" id="vProg" hidden><div class="v-bar"><i id="vBar"></i></div><span id="vProgTxt" role="status" aria-live="polite"></span></div>
+    <div class="v-actions">
+      <a id="vLink" class="btn-secondary" hidden><svg class="ic"><use href="#i-download"/></svg>Transferir de novo</a>
+      <button class="btn-secondary" id="vCancel" hidden>Cancelar</button>
+      <button class="btn-primary" id="vStart"><svg class="ic"><use href="#i-video"/></svg><span>Gravar e transferir</span></button>
+    </div>
   </div>
 </dialog>
 
