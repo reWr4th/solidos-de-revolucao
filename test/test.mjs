@@ -271,9 +271,9 @@ for (const axis of ['x', 'y', 'z']) {
       check(`método A cilindros ${axis}`, Math.abs(last.Acyl / plan.cylLimit - 1) < 2e-6 && Math.abs(last.Acyl / ex.area - 1) > 0.01, `${last.Acyl} vs ${plan.cylLimit}`);
       const err = plan.table.map((r) => Math.abs(r.V - ex.volume));
       check(`método erro decresce ${axis}`, err[10] < err[5] && err[5] < err[1], err.join(' '));
-      // continuidade: no início de cada divisão as peças ainda têm a altura da peça-mãe
-      const before = plan.at(4.99), start = plan.at(5.0);
-      check(`método continuidade ${axis}`, close(before.V, start.V, 1e-12) && start.n === 1024, `${before.V} ${start.V}`);
+      // nas divisões mostram-se os valores das peças novas (os da tabela)
+      const start = plan.at(5.0), mid = plan.at(5.1), sm0 = plan.at(5.5);
+      check(`método divisão ${axis}`, start.n === 1024 && close(start.V, last.V, 1e-12) && close(mid.V, last.V, 1e-12) && close(sm0.V, last.V, 1e-9), `${start.V} ${mid.V} ${sm0.V} ${last.V}`);
       const sm = plan.at(6.79);
       check(`método suavização ${axis}`, close(sm.V, last.Vfr, 1e-9) && close(sm.A, last.Afr, 1e-9));
       const sw = plan.at(0.1);

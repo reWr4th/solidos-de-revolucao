@@ -168,10 +168,13 @@ export class MethodPlan {
     }
     out.L = L; out.R = R;
     out.smooth = P.phase !== 'sweep' && P.phase !== 'split';
-    const key = P.phase + '|' + P.k + '|' + Math.round(P.s * 1000);
+    // nas divisões, os valores são os das n peças novas (como na tabela); a forma 3D só faz a transição
+    const key = P.phase === 'split' ? 'split|' + P.k : P.phase + '|' + P.k + '|' + Math.round(P.s * 1000);
     let S = this.cache.get(key);
     if (!S) {
-      S = pieceSums(this.axis, out.theta, st.xs, L, R, { union: this.union && out.theta > Math.PI + 1e-9, a: this.a, b: this.b });
+      S = P.phase === 'split'
+        ? { V: this.table[P.k].V, A: this.table[P.k].Acyl }
+        : pieceSums(this.axis, out.theta, st.xs, L, R, { union: this.union && out.theta > Math.PI + 1e-9, a: this.a, b: this.b });
       if (this.cache.size > 400) this.cache.clear();
       this.cache.set(key, S);
     }
