@@ -1,10 +1,11 @@
 // =============================================================================
-//  Vídeo da rotação: gera cada fotograma no ângulo exato e codifica em MP4
-//  (H.264, via WebCodecs). Sem WebCodecs, grava em tempo real com o
-//  MediaRecorder (MP4 ou WebM, conforme o navegador).
+//  Vídeo e GIF: gera cada fotograma no instante exato e codifica em MP4
+//  (H.264, via WebCodecs) ou em GIF animado. Sem WebCodecs, o vídeo grava-se
+//  em tempo real com o MediaRecorder (MP4 ou WebM, conforme o navegador).
 // =============================================================================
 
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 
 const AVC_CODECS = ['avc1.640033', 'avc1.64002A', 'avc1.640028', 'avc1.4D4028', 'avc1.42E01F'];
 
@@ -100,10 +101,59 @@ export async function encodeVideo({ width, height, fps, frames, drawFrame, onPro
   return new Blob(chunks, { type: format.mime.split(';')[0] });
 }
 
+// GIF animado: paleta global de 255 cores (tirada de alguns fotogramas) e uma cor
+// transparente; cada fotograma só guarda os píxeis que mudaram (o resto fica transparente)
+// e fotogramas iguais juntam-se num só, com a soma das durações.
+export async function encodeGif({ width: W, height: H, fps, frames, drawFrame, onProgress, signal }) {
+  const read = (i) => drawFrame(i).getContext('2d').getImageData(0, 0, W, H).data;
+  const ns = Math.min(8, frames);
+  const sample = [...new Set(Array.from({ length: ns }, (_, j) => Math.round((j * (frames - 1)) / Math.max(1, ns - 1))))];
+  const step = 2, per = Math.ceil((W * H) / step);
+  const buf = new Uint8Array(sample.length * per * 4);
+  let o = 0;
+  for (let j = 0; j < sample.length; j++) {
+    if (signal && signal.aborted) throw abortErr();
+    const d = read(sample[j]);
+    for (let p = 0; p < W * H; p += step) { const q = p * 4; buf[o++] = d[q]; buf[o++] = d[q + 1]; buf[o++] = d[q + 2]; buf[o++] = 255; }
+    onProgress && onProgress((0.08 * (j + 1)) / sample.length);
+    await tick();
+  }
+  const pal = quantize(buf, 255, { format: 'rgb565' });
+  const T = pal.length; // índice da cor transparente
+  const gif = GIFEncoder();
+  const shown = new Uint8Array(W * H);
+  let pending = null;
+  const flush = () => { if (pending) gif.writeFrame(pending.ix, W, H, pending.opts); pending = null; };
+  // durações em centésimos de segundo, acumuladas (sem desvio: 15 fps → 7, 7, 6, …)
+  const cs = (k) => Math.round(((k + 1) * 100) / fps) - Math.round((k * 100) / fps);
+  for (let i = 0; i < frames; i++) {
+    if (signal && signal.aborted) throw abortErr();
+    const ix = applyPalette(read(i), pal, 'rgb565');
+    const delay = cs(i) * 10;
+    if (i === 0) {
+      shown.set(ix);
+      pending = { ix, opts: { palette: [...pal, [0, 0, 0]], delay, dispose: 1 } };
+    } else {
+      let changed = 0;
+      for (let p = 0; p < ix.length; p++) {
+        if (ix[p] === shown[p]) ix[p] = T;
+        else { shown[p] = ix[p]; changed++; }
+      }
+      if (!changed) pending.opts.delay += delay;
+      else { flush(); pending = { ix, opts: { delay, transparent: true, transparentIndex: T, dispose: 1 } }; }
+    }
+    if (i % 2 === 0) { onProgress && onProgress(0.08 + (0.92 * (i + 1)) / frames); await tick(); }
+  }
+  flush();
+  gif.finish();
+  onProgress && onProgress(1);
+  return new Blob([gif.bytesView()], { type: 'image/gif' });
+}
+
 // Legenda no canto superior esquerdo do vídeo
 export function drawCaption(ctx, W, H, lines, dark) {
   if (!lines || !lines.length) return;
-  const s = Math.min(W, H) / 1080;
+  const s = Math.max(Math.min(W, H) / 1080, 0.42);
   const pad = Math.round(26 * s), gap = Math.round(10 * s);
   const fonts = [
     `600 ${Math.round(38 * s)}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`,

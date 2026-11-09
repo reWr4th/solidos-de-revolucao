@@ -231,5 +231,66 @@ for (const axis of ['x', 'y', 'z']) {
   }
 }
 
+// ---------- método dos cilindros
+{
+  const { MethodPlan, phaseAt, pieceSums, recommendedView, CHECKPOINTS, T_END } = await import('../src/method.js');
+  const ph = (t) => { const p = phaseAt(t); return `${p.phase}${p.k}`; };
+  check('fase 0', ph(0) === 'sweep0' && ph(0.49) === 'sweep0');
+  check('fase 0.5', ph(0.5) === 'split1' && ph(0.99) === 'split1' && ph(1) === 'split2');
+  check('fase 5', ph(5) === 'split10' && ph(5.49) === 'split10', ph(5));
+  check('fase suave', ph(5.5) === 'smooth10' && ph(6.79) === 'smooth10');
+  check('fase revela', ph(6.8) === 'reveal10' && ph(7.39) === 'reveal10' && ph(T_END) === 'done10');
+  check('checkpoints', CHECKPOINTS.length === 13 && CHECKPOINTS.every((t, i) => i === 0 || t > CHECKPOINTS[i - 1]));
+
+  // cilindro: f constante
+  const xs = Float64Array.from([0, 1.5, 3]), two = Float64Array.from([2, 2]);
+  const c = pieceSums('x', 2 * Math.PI, xs, two, two);
+  check('cilindro V', close(c.V, 12 * Math.PI) && close(c.A, 12 * Math.PI), JSON.stringify(c));
+  // tronco de cone (raios 1 → 3, comprimento 2): V = π h (r² + rR + R²)/3, A = π (r + R) g
+  const fr = pieceSums('x', 2 * Math.PI, Float64Array.from([0, 2]), Float64Array.from([1]), Float64Array.from([3]));
+  check('tronco V', close(fr.V, (Math.PI * 2 * 13) / 3) && close(fr.A, Math.PI * 4 * Math.hypot(2, 2)), JSON.stringify(fr));
+  // casca cilíndrica: raios 1 → 2, altura 3 → V = π(4 − 1)·3 = 9π; anel: A = π(4 − 1) = 3π
+  const sh = pieceSums('y', 2 * Math.PI, Float64Array.from([1, 2]), Float64Array.from([3]), Float64Array.from([3]));
+  check('casca V', close(sh.V, 9 * Math.PI) && close(sh.A, 3 * Math.PI), JSON.stringify(sh));
+  // união em Oy: f = x + 3 em [−1, 2], 1 peça de altura 3,5
+  const ux = Float64Array.from([-1, 2]), uh = Float64Array.from([3.5]);
+  const u360 = pieceSums('y', 2 * Math.PI, ux, uh, uh, { union: true });
+  const u270 = pieceSums('y', 1.5 * Math.PI, ux, uh, uh, { union: true });
+  check('união 360', close(u360.V, 14 * Math.PI, 1e-8), u360.V / Math.PI);
+  check('união 270', close(u270.V, 11.375 * Math.PI, 1e-8), u270.V / Math.PI);
+
+  // convergência para o valor exato
+  const P = parseDefinition('x^2 - x + 2');
+  for (const axis of ['x', 'y']) {
+    for (const surface of [false, true]) {
+      const ex = computeMetrics({ f: P.fn, df: P.df, a: 0, b: 2, axis, theta: 2 * Math.PI, surface });
+      const plan = new MethodPlan({ f: P.fn, a: 0, b: 2, axis, theta: 2 * Math.PI, surface, exact: ex });
+      const last = plan.table[plan.table.length - 1];
+      check(`método V ${axis}`, Math.abs(last.V / ex.volume - 1) < 2e-6, `${last.V} vs ${ex.volume}`);
+      check(`método A troncos ${axis}`, Math.abs(last.Afr / ex.area - 1) < 2e-6, `${last.Afr} vs ${ex.area}`);
+      check(`método A cilindros ${axis}`, Math.abs(last.Acyl / plan.cylLimit - 1) < 2e-6 && Math.abs(last.Acyl / ex.area - 1) > 0.01, `${last.Acyl} vs ${plan.cylLimit}`);
+      const err = plan.table.map((r) => Math.abs(r.V - ex.volume));
+      check(`método erro decresce ${axis}`, err[10] < err[5] && err[5] < err[1], err.join(' '));
+      // continuidade: no início de cada divisão as peças ainda têm a altura da peça-mãe
+      const before = plan.at(4.99), start = plan.at(5.0);
+      check(`método continuidade ${axis}`, close(before.V, start.V, 1e-12) && start.n === 1024, `${before.V} ${start.V}`);
+      const sm = plan.at(6.79);
+      check(`método suavização ${axis}`, close(sm.V, last.Vfr, 1e-9) && close(sm.A, last.Afr, 1e-9));
+      const sw = plan.at(0.1);
+      check(`método varrimento ${axis}`, sw.theta < 2 * Math.PI && sw.V < plan.table[0].V);
+    }
+  }
+
+  // vista recomendada (superfície oca)
+  const rv = (s, a, b, axis, surface, deg = 360) => recommendedView({ f: parseDefinition(s).fn, a, b, axis, theta: (deg * Math.PI) / 180, surface });
+  check('vista esfera', rv('sqrt(4-x^2)', -2, 2, 'x', true).kind === 'cut' && rv('sqrt(4-x^2)', -2, 2, 'x', true).clip);
+  const par = rv('sqrt(x)', 0, 2, 'x', true);
+  check('vista paraboloide', par.kind === 'open' && par.dir[0] > 0, JSON.stringify(par));
+  check('vista taça Oy', rv('x^2', 0, 2, 'y', true).kind === 'above');
+  check('vista cúpula Oy', rv('4 - x^2', 0, 2, 'y', true).kind === 'below');
+  check('vista parcial', rv('x^2 - x + 2', 0, 2, 'x', false, 240).kind === 'wedge');
+  check('vista sólido', rv('x^2 - x + 2', 0, 2, 'x', false).clip === null);
+}
+
 console.log(`\n${passes} passaram, ${fails} falharam`);
 process.exit(fails ? 1 : 0);

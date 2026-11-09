@@ -37,6 +37,10 @@
     <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
     <symbol id="i-video" viewBox="0 0 24 24"><rect x="2.5" y="6" width="13.5" height="12" rx="2.2"/><path d="m16 10.2 5.5-3.2v10l-5.5-3.2z"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3.5v11.5M7.2 10.4 12 15.2l4.8-4.8"/><path d="M4.5 19.5h15"/></symbol>
+    <symbol id="i-cyl" viewBox="0 0 24 24"><ellipse cx="7" cy="8.5" rx="3.6" ry="1.5"/><path d="M3.4 8.5v9.5c0 .85 1.6 1.5 3.6 1.5s3.6-.65 3.6-1.5V8.5"/><ellipse cx="17" cy="12.5" rx="3.6" ry="1.5"/><path d="M13.4 12.5V18c0 .85 1.6 1.5 3.6 1.5s3.6-.65 3.6-1.5v-5.5"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M4.5 4.2v4.6h4.6"/></symbol>
+    <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6.5 5.5v13"/><path d="M18.5 6 9.5 12l9 6z" fill="currentColor"/></symbol>
+    <symbol id="i-next" viewBox="0 0 24 24"><path d="M17.5 5.5v13"/><path d="M5.5 6l9 6-9 6z" fill="currentColor"/></symbol>
   </defs>
 </svg>
 
@@ -166,6 +170,16 @@
         </div>
         <div class="formula" id="rFormula"></div>
         <div id="rWarn"></div>
+        <button class="btn-secondary block" id="btnMethod"><svg class="ic"><use href="#i-cyl"/></svg><span>Ver como se calcula (cilindros)</span></button>
+      </section>
+
+      <section class="sec" id="methodSec" hidden>
+        <h2 class="sec-h"><span class="num">4</span><span id="mTitle">Método dos cilindros</span></h2>
+        <div class="m-expl" id="mExpl"></div>
+        <div class="mtab-wrap"><table class="mtab" id="mTable"></table></div>
+        <div class="m-note" id="mNote"></div>
+        <button class="btn-secondary block" id="mSave2"><svg class="ic"><use href="#i-download"/></svg>Transferir a ilustração (vídeo ou GIF)</button>
+        <button class="btn-text block" id="mExit2">Sair do método</button>
       </section>
 
       <section class="sec look" id="lookSec" hidden>
@@ -247,6 +261,17 @@
       <div class="anim-row" id="animRow">
         <button class="anim-btn" id="btnAnim3d"><svg class="ic"><use href="#i-play"/></svg><span>Animar rotação</span></button>
         <button class="anim-btn alt" id="btnVid3d" title="Transferir vídeo da rotação"><svg class="ic"><use href="#i-video"/></svg><span>Vídeo</span></button>
+        <button class="anim-btn alt" id="btnMethod3d" title="Ver o método dos cilindros: de onde vêm o volume e a área"><svg class="ic"><use href="#i-cyl"/></svg><span>Método</span></button>
+      </div>
+      <div class="mcard" id="mCard" hidden></div>
+      <div class="mbar" id="mBar" hidden>
+        <button class="mb-btn" id="mRestart" aria-label="Recomeçar" title="Recomeçar"><svg class="ic"><use href="#i-restart"/></svg></button>
+        <button class="mb-btn" id="mPrev" aria-label="Etapa anterior" title="Etapa anterior (←)"><svg class="ic"><use href="#i-prev"/></svg></button>
+        <button class="mb-btn play" id="mPlay" aria-label="Pausar" title="Pausar (espaço)"><svg class="ic"><use href="#i-pause"/></svg></button>
+        <button class="mb-btn" id="mNext" aria-label="Etapa seguinte" title="Etapa seguinte (→)"><svg class="ic"><use href="#i-next"/></svg></button>
+        <input type="range" id="mScrub" min="0" max="8.2" step="0.01" value="0" aria-label="Instante da animação do método">
+        <button class="mb-btn txt" id="mSave" title="Transferir a ilustração (vídeo ou GIF)"><svg class="ic"><use href="#i-download"/></svg><span>Transferir</span></button>
+        <button class="mb-btn txt" id="mExit" title="Sair do método (Esc)"><svg class="ic"><use href="#i-close"/></svg><span>Sair</span></button>
       </div>
       <div class="fab-col">
         <button class="fab" data-z3="home" aria-label="Enquadrar o sólido" title="Enquadrar o sólido"><svg class="ic"><use href="#i-home"/></svg></button>
@@ -270,7 +295,8 @@
       <li><b>Eixo de rotação.</b> Ox (método dos discos), Oy (método das cascas cilíndricas) ou Oz. A curva está no plano xOy, por isso Oz é perpendicular a esse plano: a região roda dentro do próprio plano e o resultado é uma região plana (volume 0).</li>
       <li><b>Limites a e b.</b> Escreve-os (aceita <code>pi</code>, <code>2pi/3</code>, <code>sqrt(2)</code>), usa os cursores ou arrasta os pontos a e b no gráfico 2D.</li>
       <li><b>Ângulo θ.</b> De 1° a 360° (por ex. 240° para ver o interior). O botão ▶ anima a rotação; em "Duração da rotação" escolhes quanto tempo demora (de 0,5 s a 120 s), por exemplo 1 s para uma rotação quase instantânea ou 30 s para veres o sólido a formar-se devagar.</li>
-      <li><b>Vídeo.</b> O botão "Vídeo" (ou "Transferir vídeo da rotação") grava a rotação de 0° até θ com a duração escolhida e o aspeto atual (grelha, eixos, malha, cores, tema) e transfere um ficheiro MP4.</li>
+      <li><b>Vídeo ou GIF.</b> O botão "Vídeo" (ou "Transferir vídeo da rotação") grava a rotação de 0° até θ com a duração escolhida e o aspeto atual (grelha, eixos, malha, cores, tema) e transfere um vídeo MP4 ou um GIF animado.</li>
+      <li><b>Método dos cilindros.</b> O botão "Método" mostra de onde vêm as fórmulas: começa com um só cilindro (em Oy, uma casca cilíndrica), que a cada 0,5 s se divide em dois, até 1024 peças; depois os topos suavizam-se em troncos de cone e revela-se o sólido. A soma dos volumes das peças aproxima-se do volume exato. Para a área, os cilindros não chegam: só a soma das áreas dos troncos de cone se aproxima da área da superfície. "Transferir" guarda a ilustração em vídeo ou GIF (na superfície, de um ângulo que mostra que é oca).</li>
       <li><b>Sólido ou superfície.</b> Com "Superfície de revolução" ativo, só a curva roda: obténs a casca (sem bases nem interior). Por fora tem a cor escolhida e por dentro um tom mais claro; mostra-se a área da superfície.</li>
     </ol>
     <h3>O que é calculado</h3>
@@ -290,27 +316,27 @@
 </dialog>
 
 <dialog id="videoDlg" class="help vdlg" aria-labelledby="vTitle">
-  <div class="help-h"><h2 id="vTitle">Transferir vídeo</h2><button class="icon-btn" id="vClose" aria-label="Fechar"><svg class="ic"><use href="#i-close"/></svg></button></div>
+  <div class="help-h"><h2 id="vTitle">Transferir a rotação</h2><button class="icon-btn" id="vClose" aria-label="Fechar"><svg class="ic"><use href="#i-close"/></svg></button></div>
   <div class="help-body">
     <p class="v-sum" id="vSummary"></p>
     <div class="field">
-      <div class="lbl" id="vResLbl">Resolução</div>
-      <div class="seg seg-sm" id="vRes" role="radiogroup" aria-labelledby="vResLbl">
-        <button data-res="720" role="radio">720p<small>1280 × 720</small></button>
-        <button data-res="1080" role="radio">1080p<small>1920 × 1080</small></button>
-        <button data-res="sq" role="radio">Quadrado<small>1080 × 1080</small></button>
+      <div class="lbl" id="vFmtLbl">Formato</div>
+      <div class="seg seg-sm" id="vFmt" role="radiogroup" aria-labelledby="vFmtLbl">
+        <button data-fmt="mp4" role="radio">Vídeo<small>MP4 (H.264)</small></button>
+        <button data-fmt="gif" role="radio">GIF animado<small>repete sem fim</small></button>
       </div>
     </div>
     <div class="field">
+      <div class="lbl" id="vResLbl">Resolução</div>
+      <div class="seg seg-sm" id="vRes" role="radiogroup" aria-labelledby="vResLbl"></div>
+    </div>
+    <div class="field">
       <div class="lbl" id="vFpsLbl">Fotogramas por segundo</div>
-      <div class="seg seg-sm" id="vFps" role="radiogroup" aria-labelledby="vFpsLbl">
-        <button data-fps="30" role="radio">30 fps</button>
-        <button data-fps="60" role="radio">60 fps<small>mais fluido</small></button>
-      </div>
+      <div class="seg seg-sm" id="vFps" role="radiogroup" aria-labelledby="vFpsLbl"></div>
     </div>
     <div class="v-opts">
-      <label class="tg"><input type="checkbox" id="vCaption" checked><span>Legenda com a função, o eixo, o ângulo e o volume</span></label>
-      <label class="tg"><input type="checkbox" id="vFit" checked><span>Enquadrar o sólido (mantém a direção atual da câmara)</span></label>
+      <label class="tg"><input type="checkbox" id="vCaption" checked><span id="vCapTxt">Legenda com a função, o eixo, o ângulo e o volume</span></label>
+      <label class="tg"><input type="checkbox" id="vFit" checked><span id="vFitTxt">Enquadrar o sólido (mantém a direção atual da câmara)</span></label>
       <label class="tg"><input type="checkbox" id="vHold" checked><span>Manter a imagem final durante 1 s</span></label>
     </div>
     <div class="v-info" id="vInfo"></div>

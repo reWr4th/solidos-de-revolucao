@@ -251,12 +251,14 @@ export class Graph2D {
 
     this.drawGrid(m);
     if (gen && m.axis === 'z') this.drawOzSweep(m, gen);
-    if (gen && !m.surface) this.drawRegion(m, gen);
+    if (gen && m.method) this.drawMethod(m, gen, 'fill');
+    else if (gen && !m.surface) this.drawRegion(m, gen);
     if (m.axesOn !== false) this.drawAxes(m);
     for (const f of m.funcs) if (f.visible && f !== gen) this.drawCurve(f, false);
     if (gen) {
       this.drawCurve(gen, true);
-      if (m.surface) this.drawGenArc(m, gen);
+      if (m.method) this.drawMethod(m, gen, 'line');
+      else if (m.surface) this.drawGenArc(m, gen);
       this.drawLimits(m, gen);
     }
     if (gen) this.drawAxisGlyph(m, gen);
@@ -435,6 +437,58 @@ export class Graph2D {
     ctx.closePath();
     ctx.fillStyle = alpha(this.fc(g.color), this.theme.dark ? 0.3 : 0.22);
     ctx.fill();
+  }
+
+  // Método dos cilindros: retângulos (ou trapézios, na suavização) que rodam e geram as peças.
+  // No modo superfície só os topos rodam: segmentos grossos.
+  drawMethod(m, g, layer) {
+    const M = m.method, ctx = this.ctx;
+    const col = this.fc(g.color);
+    const n = M.L.length, xs = M.xs;
+    const Y0 = this.Y(0);
+    const cl = (v) => Math.max(-1e5, Math.min(1e5, v));
+    const X = (i) => this.X(xs[i]), YL = (i) => cl(this.Y(M.L[i])), YR = (i) => cl(this.Y(M.R[i]));
+    if (!M.surface && layer === 'fill') {
+      const k = this.theme.dark ? 1.25 : 1;
+      if (n <= 64) {
+        ctx.lineWidth = 1;
+        for (let i = 0; i < n; i++) {
+          ctx.beginPath();
+          ctx.moveTo(X(i), Y0); ctx.lineTo(X(i + 1), Y0); ctx.lineTo(X(i + 1), YR(i)); ctx.lineTo(X(i), YL(i));
+          ctx.closePath();
+          ctx.fillStyle = alpha(col, (i & 1 ? 0.2 : 0.34) * k);
+          ctx.fill();
+          ctx.strokeStyle = alpha(col, 0.85);
+          ctx.stroke();
+        }
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(X(0), Y0);
+        for (let i = 0; i < n; i++) { ctx.lineTo(X(i), YL(i)); ctx.lineTo(X(i + 1), YR(i)); }
+        ctx.lineTo(X(n), Y0);
+        ctx.closePath();
+        ctx.fillStyle = alpha(col, 0.3 * k);
+        ctx.fill();
+        ctx.lineWidth = 1.2; ctx.strokeStyle = alpha(col, 0.9);
+        ctx.stroke();
+      }
+    }
+    if (M.surface && layer === 'line') {
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = n <= 32 ? 5 : 3.5;
+      if (n <= 64) {
+        for (let i = 0; i < n; i++) {
+          ctx.strokeStyle = i & 1 ? alpha(col, 0.55) : col;
+          ctx.beginPath(); ctx.moveTo(X(i), YL(i)); ctx.lineTo(X(i + 1), YR(i)); ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = col;
+        ctx.beginPath();
+        for (let i = 0; i < n; i++) { ctx.moveTo(X(i), YL(i)); ctx.lineTo(X(i + 1), YR(i)); }
+        ctx.stroke();
+      }
+      ctx.lineCap = 'round';
+    }
   }
 
   // Modo superfície: a "região" geradora é só o arco da curva entre a e b

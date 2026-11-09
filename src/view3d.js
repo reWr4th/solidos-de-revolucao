@@ -6,6 +6,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildSolid, rotator, TAU } from './geometry.js';
+import { buildMethodGeometry, methodSteps } from './method3d.js';
+import { phaseAt } from './method.js';
 
 // direção da câmara (a partir do alvo) para cada vista
 const PERSP = {
@@ -111,6 +113,27 @@ function textSprite(text, { color, halo, font, px, bias = 0 }) {
   return s;
 }
 
+// Material de duas faces para a superfície do método: a cor (exterior = cor dos vértices,
+// interior = uBack) e o sentido da normal decidem-se pelo lado da normal (suavizada) que se vê.
+function twoToneMaterial(uBack) {
+  const m = new THREE.MeshPhongMaterial({
+    side: THREE.DoubleSide, vertexColors: true, shininess: 50, specular: 0x2a2a2a,
+    polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+  });
+  m.onBeforeCompile = (sh) => {
+    sh.uniforms.uBack = uBack;
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform vec3 uBack;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        float sideK = dot( vNormal, vViewPosition ) >= 0.0 ? 1.0 : 0.0;
+        diffuseColor.rgb = mix( uBack, diffuseColor.rgb, sideK );`)
+      .replace('#include <normal_fragment_begin>', `float faceDirection = sideK * 2.0 - 1.0;
+        vec3 normal = normalize( vNormal ) * faceDirection;
+        vec3 nonPerturbedNormal = normal;`);
+  };
+  return m;
+}
+
 export class View3D {
   constructor(container) {
     this.container = container;
@@ -157,7 +180,8 @@ export class View3D {
     this.gLabels = new THREE.Group();
     this.gSolid = new THREE.Group();
     this.gHelp = new THREE.Group();
-    this.scene.add(this.gGrid, this.gAxes, this.gLabels, this.gSolid, this.gHelp);
+    this.gMethod = new THREE.Group(); // peças do método dos cilindros
+    this.scene.add(this.gGrid, this.gAxes, this.gLabels, this.gSolid, this.gHelp, this.gMethod);
 
     const surf = { side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 };
     this.mats = {
@@ -175,7 +199,16 @@ export class View3D {
       outline: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9 }),
       grid: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false }),
       gridMinor: new THREE.LineBasicMaterial({ transparent: true, opacity: 0.6, depthWrite: false }),
+      // método dos cilindros: cores por vértice (peças alternadas)
+      mSolid: new THREE.MeshPhongMaterial({ ...surf, vertexColors: true, shininess: 45, specular: 0x2a2a2a }),
+      // secções de corte das peças: puxadas para a frente (não "lutam" com os degraus que nelas começam)
+      mCaps: new THREE.MeshPhongMaterial({ ...surf, vertexColors: true, shininess: 14, specular: 0x111111, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
+      // superfície: o lado (exterior/interior, cor/tom claro) escolhe-se pela normal suavizada,
+      // como na superfície verdadeira — os degraus subpíxel não ficam às pintas
+      mSurf: twoToneMaterial(this.uBack = { value: new THREE.Color(0xffffff) }),
     };
+    this.renderer.localClippingEnabled = true;
+    this.method = null;
     this.axisMats = {};
     for (const k of ['x', 'y', 'z']) this.axisMats[k] = { line: new THREE.LineBasicMaterial(), solid: new THREE.MeshBasicMaterial() };
     this.theme = { bg: '#ffffff', grid: '#d4d4d4', gridMinor: '#ececec', tick: '#333', ax: { x: '#e53935', y: '#2e9e44', z: '#1e6fd9' }, dark: false };
@@ -261,8 +294,9 @@ export class View3D {
     this.mats.flat.color.set(L.color);
     this.mats.shellOut.color.set(L.color);
     this.mats.shellIn.color.copy(mix(L.color, '#ffffff', 0.55));
+    this.uBack.value.copy(this.mats.shellIn.color);
     this.mats.rim.color.copy(t.dark ? mix(L.color, '#ffffff', 0.35) : mix(L.color, '#000000', 0.35));
-    for (const k of ['lateral', 'ends', 'caps', 'shellOut', 'shellIn']) {
+    for (const k of ['lateral', 'ends', 'caps', 'shellOut', 'shellIn', 'mSolid', 'mCaps', 'mSurf']) {
       const m = this.mats[k];
       m.transparent = transparent;
       m.opacity = op;
@@ -270,6 +304,7 @@ export class View3D {
       m.needsUpdate = true;
     }
     this.mats.mesh.color.copy(t.dark ? mix(L.color, '#ffffff', 0.6) : mix(L.color, '#000000', 0.55));
+    if (this.method) this.method.key = ''; // as cores das peças vêm dos materiais
     this.dirty = true;
   }
 
@@ -331,12 +366,12 @@ export class View3D {
     this.mats.curve0.color.set(d.fnColor || '#1e7d6f');
     this.mats.outline.color.set(d.fnColor || '#1e7d6f');
     add(this.gSolid, tube(sol.curve0, r, this.mats.curve0), 'curve');
-    if (sol.curveT) add(this.gSolid, tube(sol.curveT, r * 0.92, this.mats.curveT), 'curve');
+    if (sol.curveT) add(this.gSolid, tube(sol.curveT, r * 0.92, this.mats.curveT), 'curveT');
     const outl = (arr) => {
       for (const seg of arr) {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(seg, 3));
-        add(this.gSolid, new THREE.Line(g, this.mats.outline), 'curve');
+        add(this.gSolid, new THREE.Line(g, this.mats.outline), 'outline');
       }
     };
     outl(sol.outline0);
@@ -383,12 +418,106 @@ export class View3D {
   rebuildVisibility() {
     if (!this.ok) return;
     const L = this.look;
-    const vis = { solid: L.solid, caps: L.solid && L.caps, mesh: L.mesh, curve: L.curve, axes: L.axes };
-    for (const g of [this.gSolid, this.gHelp]) for (const o of g.children) o.visible = vis[o.userData.tag] !== false;
+    const vis = { solid: L.solid, caps: L.solid && L.caps, mesh: L.mesh, curve: L.curve, curveT: L.curve, outline: L.curve, axes: L.axes };
+    // durante o método, o sólido final fica escondido até à revelação
+    const hide = this.method && this.method.hide ? { solid: 1, caps: 1, mesh: 1, curveT: 1, outline: 1 } : {};
+    for (const g of [this.gSolid, this.gHelp]) for (const o of g.children) o.visible = vis[o.userData.tag] !== false && !hide[o.userData.tag];
+    this.gMethod.visible = !!(this.method && this.method.hide) && L.solid;
     this.gAxes.visible = L.axes;
     this.gLabels.visible = L.axes;
     this.gGrid.visible = L.grid;
     this.dirty = true;
+  }
+
+  // ------------------------------------------------- método dos cilindros --
+  // plan: MethodPlan (method.js) ou null para sair do modo
+  setMethod(plan) {
+    if (!this.ok) return;
+    this.clearGroup(this.gMethod);
+    if (!plan) {
+      this.method = null;
+      this.setClip(null);
+      this.setGlow(0);
+      this.rebuildVisibility();
+      return;
+    }
+    this.method = { plan, key: '', meshes: [], hide: true };
+    this.setClip(plan.surface && plan.view.clip ? plan.view.clip : null);
+  }
+
+  setMethodTime(t) {
+    const M = this.method;
+    if (!M || !this.ok) return;
+    const P = phaseAt(t);
+    if (P.phase === 'reveal' || P.phase === 'done') {
+      M.hide = false;
+      // revelação: o sólido verdadeiro aparece com um brilho que se desvanece
+      this.setGlow(P.phase === 'reveal' ? 0.32 * (1 - P.s) * (1 - P.s) : 0);
+    } else {
+      M.hide = true;
+      this.setGlow(0);
+      const key = P.phase === 'sweep' ? 'w' + Math.round(P.s * 240) : P.phase + P.k;
+      if (key !== M.key) { M.key = key; this.buildMethodMeshes(P); }
+      for (const m of M.meshes) if (m.morphTargetInfluences) m.morphTargetInfluences[0] = P.s;
+    }
+    this.rebuildVisibility();
+  }
+
+  buildMethodMeshes(P) {
+    const M = this.method, plan = M.plan;
+    this.clearGroup(this.gMethod);
+    M.meshes = [];
+    const S = plan.geomStates(P);
+    const theta = P.phase === 'sweep' ? Math.max(P.s, 1e-3) * plan.theta : plan.theta;
+    const lin = (c) => [c.r, c.g, c.b];
+    const G = buildMethodGeometry({
+      axis: plan.axis, theta, nT: methodSteps(theta), surface: plan.surface, ...S,
+      colors: { top: lin(this.mats.lateral.color), wall: lin(this.mats.ends.color), cap: lin(this.mats.caps.color) },
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(G.pos, 3));
+    g.setAttribute('normal', new THREE.BufferAttribute(G.nrm, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(G.col, 3));
+    g.setIndex(new THREE.BufferAttribute(G.idx, 1));
+    if (G.pos1) {
+      g.morphAttributes.position = [new THREE.BufferAttribute(G.pos1, 3)];
+      g.morphAttributes.normal = [new THREE.BufferAttribute(G.nrm1, 3)];
+      g.morphTargetsRelative = false;
+    }
+    const mk = (mat) => {
+      const m = new THREE.Mesh(g, mat);
+      m.frustumCulled = false;
+      if (G.pos1) { m.updateMorphTargets(); m.morphTargetInfluences[0] = P.s; }
+      this.gMethod.add(m);
+      M.meshes.push(m);
+    };
+    if (plan.surface) mk(this.mats.mSurf);
+    else if (G.capCount) {
+      g.addGroup(0, G.capStart, 0);
+      g.addGroup(G.capStart, G.capCount, 1);
+      mk([this.mats.mSolid, this.mats.mCaps]);
+    } else mk(this.mats.mSolid);
+    this.dirty = true;
+  }
+
+  setGlow(k) {
+    if (this.glow === k) return;
+    this.glow = k;
+    for (const n of ['lateral', 'ends', 'caps', 'shellOut', 'shellIn']) { const m = this.mats[n]; m.emissive.copy(m.color).multiplyScalar(k); }
+    this.dirty = true;
+  }
+
+  // corta o semiespaço n·p > ε (para ver o interior de uma superfície fechada)
+  setClip(n) {
+    const planes = n ? [new THREE.Plane(new THREE.Vector3(-n[0], -n[1], -n[2]), (this.tubeR || 0.02) * 2.5)] : [];
+    for (const k of ['lateral', 'ends', 'caps', 'shellOut', 'shellIn', 'rim', 'mesh', 'curveT', 'outline', 'mSolid', 'mCaps', 'mSurf']) this.mats[k].clippingPlanes = planes;
+    this.dirty = true;
+  }
+
+  // vista recomendada: direção arbitrária, guardada como predefinição "custom"
+  fitDirection(dir, animate = true) {
+    this.customDir = new THREE.Vector3(...dir).normalize();
+    this.fit('custom', animate);
   }
 
   // ---------------------------------------------------------- eixos/grelha --
@@ -470,7 +599,11 @@ export class View3D {
     this.preset = preset;
     if (!this.w || !this.h) { this.pendingFit = preset; return; }
     const dir = this.presetDir(preset);
-    const { center, dist, pos } = this.framing(dir, this.camera.aspect);
+    const F = this.framing(dir, this.camera.aspect);
+    // vista do método: um pouco mais afastada, para o cartão com as somas não tapar as peças
+    const { center } = F;
+    const dist = preset === 'custom' ? F.dist * 1.14 : F.dist;
+    const pos = center.clone().addScaledVector(dir, dist);
     this.camera.near = Math.max(dist / 500, 0.001);
     this.camera.far = dist * 60;
     this.camera.updateProjectionMatrix();
@@ -491,6 +624,7 @@ export class View3D {
   }
 
   presetDir(preset) {
+    if (preset === 'custom' && this.customDir) return this.customDir.clone();
     const axis = this.data ? this.data.axis : 'x';
     const dir = preset === 'persp' ? PERSP[axis].clone() : (PRESETS[preset] || PERSP.x).clone();
     // em Ox, a câmara fica do lado da base mais pequena (a maior não tapa a superfície lateral)
@@ -515,7 +649,7 @@ export class View3D {
 
   // ------------------------------------------------------ captura de vídeo --
   // Renderiza fotogramas com w × h píxeis, com a câmara atual (ou reenquadrada na mesma direção).
-  beginCapture(w, h, { fit = true } = {}) {
+  beginCapture(w, h, { fit = true, dir = null } = {}) {
     if (!this.ok) throw new Error('A vista 3D não está disponível (WebGL).');
     this.capturing = true;
     this.camAnim = null;
@@ -528,9 +662,10 @@ export class View3D {
     this.camera.aspect = w / h;
     let target = this.controls.target.clone();
     // se a vista 3D ainda não foi mostrada, a câmara ainda não foi enquadrada: usa a vista padrão
-    if (fit || this.pendingFit) {
-      const dir = this.pendingFit ? this.presetDir(this.pendingFit) : this.camera.position.clone().sub(this.controls.target).normalize();
-      const F = this.framing(dir, w / h);
+    if (fit || dir || this.pendingFit) {
+      const d = dir ? new THREE.Vector3(...dir).normalize()
+        : this.pendingFit ? this.presetDir(this.pendingFit) : this.camera.position.clone().sub(this.controls.target).normalize();
+      const F = this.framing(d, w / h);
       this.camera.position.copy(F.pos);
       target = F.center;
       this.camera.near = Math.max(F.dist / 500, 0.001);
@@ -538,7 +673,8 @@ export class View3D {
     }
     this.camera.lookAt(target);
     this.camera.updateProjectionMatrix();
-    this.scaleLabels(this.h || Math.round(h * 0.8));
+    // etiquetas legíveis também em imagens pequenas (GIF)
+    this.scaleLabels(Math.min(this.h || h, Math.round(h / 0.75)));
   }
 
   renderCapture() {
